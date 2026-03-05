@@ -6,7 +6,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 const navLinks = [
   { label: 'How It Works', path: '/how-it-works' },
   { label: 'Examples', path: '/examples' },
-  { label: 'Pricing', path: '/pricing' },
 ];
 
 const Header: React.FC = () => {

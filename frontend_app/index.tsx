@@ -26,12 +26,12 @@ window.onerror = function (message, source, lineno, colno, error) {
     colno,
     stack: error?.stack,
   };
-  postToParent('error', '[Meku_Error_Caught]', errPayload);
+  postToParent('error', '[Error_Caught]', errPayload);
 };
 
 // Unhandled promise rejection
 window.onunhandledrejection = function (event) {
-  postToParent('error', '[Meku_Error_Caught]', { reason: event.reason });
+  postToParent('error', '[Error_Caught]', { reason: event.reason });
 };
 
 // Patch console

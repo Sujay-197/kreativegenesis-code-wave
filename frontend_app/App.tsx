@@ -12,7 +12,6 @@ import NotFound from './src/pages/NotFound';
 const Builder = lazy(() => import('./src/pages/Builder'));
 const HowItWorks = lazy(() => import('./src/pages/HowItWorks'));
 const Examples = lazy(() => import('./src/pages/Examples'));
-const Pricing = lazy(() => import('./src/pages/Pricing'));
 
 const App: React.FC = () => {
   return (
@@ -30,7 +29,6 @@ const App: React.FC = () => {
             <Route path="/builder" element={<Builder />} />
             <Route path="/how-it-works" element={<HowItWorks />} />
             <Route path="/examples" element={<Examples />} />
-            <Route path="/pricing" element={<Pricing />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>

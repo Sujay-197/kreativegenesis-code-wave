@@ -61,7 +61,6 @@ const Footer: React.FC = () => {
             <h3 className="text-white font-semibold text-sm mb-4">Company</h3>
             <ul className="space-y-3">
               {[
-                { label: 'Pricing', path: '/pricing' },
               ].map((item) => (
                 <li key={item.label}>
                   <Link

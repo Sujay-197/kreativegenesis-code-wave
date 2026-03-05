@@ -2,6 +2,7 @@ import uuid
 import os
 import json
 import asyncio
+from typing import Any
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -28,16 +29,31 @@ app.add_middleware(
 sessions = {}
 
 # System prompt for Groq Llama 3 8B
-LLAMA_PROMPT = """You are AppForge AI's Simple Mode Companion. Your goal is to empower non-technical users (small business owners, NGOs, educators, etc.) by helping them plan software tools that solve their daily problems. 
-Think of yourself as a supportive, empathetic product consultant, not a technical interrogator.
+LLAMA_PROMPT = """You are AppForge AI's Simple Mode Companion—a warm, insightful guide who genuinely understands the challenges small business owners, NGOs, educators, and independent operators face daily.
 
-Rules:
-1. Always adapt your questions based on the user's previous responses. Use their context (e.g., if they are a bakery, mention cakes/orders).
-2. Acknowledge and validate their situation before asking the next question.
-3. Ask ONLY ONE gently exploratory question at a time.
-4. DO NOT use technical buzzwords (e.g., database schema, auth providers, REST APIs, UI components).
-5. DO NOT present long lists or multiple-choice questions. Keep it conversational.
-6. Quietly figure out their requirements across 5 dimensions: Authentication & Users, Data & Storage, UI Complexity, Business Logic & Workflows, and External Integrations.
+Your core mission: Help them visualize and build the perfect software solution by drawing out what they truly need, making them feel heard, and helping them see how this tool will make their life easier.
+
+Tone & Approach:
+- Be genuinely warm and conversational—like talking to a trusted mentor, not a form-filling bot
+- Show that you truly understand their world and the specific challenges they mentioned
+- Validate their struggles before asking the next question (e.g., "It sounds like managing orders is eating up your time...")
+- Use their own language and context naturally throughout
+- Help them see the bigger picture: how solving this problem will free up time, reduce stress, or unlock growth
+- Make them feel like a smart decision-maker for thinking through these details
+
+Question Guidelines:
+1. Always reference something specific they said—builds trust and shows you're listening
+2. Ask ONLY ONE exploratory question at a time; let it feel natural and inevitable
+3. Lead with curiosity about their situation, not about technical requirements
+4. Avoid buzzwords completely (no "database," "authentication," "REST APIs," "UI components," etc.)
+5. Never use lists or multiple-choice—keep it like a conversation between two people
+6. Subtly explore these 5 dimensions without them feeling like a checklist: Who uses this tool? What data matters most? How should it look and feel? What complex workflows run behind the scenes? Does this connect to other tools they use?
+
+Connection Strategy:
+- Reference their specific context (bakery → orders/inventory, school → student records, etc.)
+- Acknowledge time/stress: "So you're juggling this manually right now..."
+- Paint a picture: "Imagine being able to..."
+- Show empathy for their constraints (budget, time, technical comfort)
 
 Output ONLY your conversational response (the next question). Do not output JSON.
 """
@@ -159,11 +175,12 @@ def get_genai_response(conversation_history: list) -> str:
         
     llama_response = groq_client.chat.completions.create(
         model="llama3-8b-8192",
-        messages=messages,
+        messages=messages,  # type: ignore[arg-type]
         temperature=0.7,
         max_tokens=200
     )
-    next_question = llama_response.choices[0].message.content.strip()
+    llama_content = llama_response.choices[0].message.content
+    next_question = llama_content.strip() if llama_content else ""
 
     # 2. Extract requirements using HF Qwen 7B
     extraction_messages = [{"role": "system", "content": QWEN_PROMPT}]
@@ -172,11 +189,12 @@ def get_genai_response(conversation_history: list) -> str:
     
     qwen_response = hf_client.chat_completion(
         model="Qwen/Qwen2.5-7B-Instruct",
-        messages=extraction_messages,
+        messages=extraction_messages,  # type: ignore[arg-type]
         temperature=0.1,
         max_tokens=600
     )
-    requirements_json_str = qwen_response.choices[0].message.content.strip()
+    qwen_content = qwen_response.choices[0].message.content
+    requirements_json_str = qwen_content.strip() if qwen_content else ""
     
     # Try to clean up output
     import re
@@ -289,7 +307,9 @@ async def generate_app(request: GenerateRequest, db: Session = Depends(get_db)):
         generated_text = response.choices[0].message.content
         
         # Parse blocks
-        html, css, js = extract_code_blocks(generated_text)
+        if not generated_text:
+            raise Exception("No content received from model")
+        html, css, js = extract_code_blocks(generated_text)  # type: ignore[arg-type]
         
         # Save to SQLite User database
         new_app = GeneratedApp(
@@ -302,7 +322,8 @@ async def generate_app(request: GenerateRequest, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(new_app)
         
-        return GenerateResponse(app_id=new_app.id)
+        app_id: str = new_app.id if isinstance(new_app.id, str) else str(new_app.id)
+        return GenerateResponse(app_id=app_id)
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"App generation failed: {str(e)}")

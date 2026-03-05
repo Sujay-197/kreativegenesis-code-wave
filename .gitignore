@@ -1,0 +1,6 @@
+af01/
+.env
+__pycache__/
+*.db
+.gemini/
+.agents/

@@ -302,7 +302,53 @@ def build_extraction_prompt(previous_requirements: dict) -> str:
         + f"\nPreviously extracted requirements (update and expand these, do NOT lose any info):\n{req_json}\n"
     )
 
-CODE_GENERATION_PROMPT = """You are an expert Frontend Developer. Your task is to generate a fully functioning web application based on the following requirements:
+CODE_GENERATION_PROMPT_WITH_TEMPLATE = """You are an expert Frontend Developer. You are given an SB Admin 2 (Bootstrap 4) dashboard TEMPLATE. Your job is to ADAPT this template into a new, fully working app that matches the requirements below.
+
+## REQUIREMENTS:
+Problem/Domain: {problem_statement_or_domain}
+Authentication/Users: {auth_and_users}
+Data/Storage: {data_and_storage}
+UI Complexity: {ui_complexity}
+Business Logic: {business_logic}
+Integrations: {integrations}
+
+## TEMPLATE FILES (your starting base — adapt, don't start from scratch):
+{template_context}
+
+## INSTRUCTIONS:
+1. KEEP the template's SB Admin 2 layout: sidebar navigation, topbar, card-based content, Bootstrap 4 classes, gradient primary sidebar.
+2. KEEP vendor CDN references to Bootstrap, jQuery, FontAwesome, Chart.js, DataTables — use these same paths:
+   - vendor/fontawesome-free/css/all.min.css
+   - css/sb-admin-2.min.css
+   - vendor/jquery/jquery.min.js
+   - vendor/bootstrap/js/bootstrap.bundle.min.js
+   - vendor/jquery-easing/jquery.easing.min.js
+   - js/sb-admin-2.min.js
+   - vendor/chart.js/Chart.min.js (if charts needed)
+   - vendor/datatables/jquery.dataTables.min.js + dataTables.bootstrap4.min.js (if tables needed)
+3. CHANGE: page title, sidebar brand name, sidebar nav items, card content, table columns, form fields — all to match the required app.
+4. CHANGE: JavaScript data models and logic — use localStorage for data persistence. Create proper CRUD operations for the entities specified.
+5. If the app needs charts, adapt the chart-demo.js pattern with the correct labels/data for the new app.
+6. If the app needs data tables, adapt the DataTables pattern from tables.html with the correct columns.
+7. If login is needed, adapt login.html with working localStorage-based auth. If no login needed, skip it.
+8. All functionality must work standalone — no server required. Use localStorage for all data persistence.
+
+IMPORTANT: Your output MUST contain exactly three code blocks:
+
+```html
+<!-- Full single-page HTML including all vendor script/css references, sidebar, topbar, content area -->
+```
+```css
+/* Any additional CSS beyond sb-admin-2 — custom styles for this specific app */
+```
+```javascript
+// All app logic: data models, CRUD, charts, tables, form handling, localStorage persistence
+```
+
+Do not include any explanations outside of the code blocks. Give me only the code.
+"""
+
+CODE_GENERATION_PROMPT_NO_TEMPLATE = """You are an expert Frontend Developer. Your task is to generate a fully functioning web application based on the following requirements:
 
 Problem/Domain: {problem_statement_or_domain}
 Authentication/Users: {auth_and_users}
@@ -311,7 +357,8 @@ UI Complexity: {ui_complexity}
 Business Logic: {business_logic}
 Integrations: {integrations}
 
-Generate the code using HTML, CSS (Tailwind via CDN is okay), and plain JavaScript. 
+Generate the code using HTML, CSS (Tailwind via CDN is okay), and plain JavaScript.
+Use localStorage or IndexedDB for data persistence on the frontend.
 IMPORTANT: Your output MUST contain exactly three code blocks formatted as follows:
 
 ```html
@@ -326,6 +373,115 @@ IMPORTANT: Your output MUST contain exactly three code blocks formatted as follo
 
 Do not include any explanations outside of the code blocks. Give me only the code.
 """
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TEMPLATE LOADING
+# ═══════════════════════════════════════════════════════════════════════════════
+
+TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "template")
+
+
+def _load_template_assets() -> dict[str, str]:
+    """Read core template files from the template/ folder.
+    Skips vendor libraries, SVG icons, and other bulky assets."""
+    assets: dict[str, str] = {}
+    if not os.path.isdir(TEMPLATE_DIR):
+        return assets
+
+    SKIP_DIRS = {"vendor", "node_modules", "scss", "less", "sprites", "svgs", "webfonts", "metadata", ".git"}
+    ALLOWED_EXTS = {".html", ".css", ".js", ".py", ".sql", ".json"}
+    SKIP_SUFFIXES = {".min.css", ".min.js", ".map", ".min.map"}
+
+    for root, dirs, files in os.walk(TEMPLATE_DIR):
+        dirs[:] = [d for d in dirs if d.lower() not in SKIP_DIRS]
+        for fname in files:
+            full = os.path.join(root, fname)
+            rel = os.path.relpath(full, TEMPLATE_DIR).replace("\\", "/")
+            ext = os.path.splitext(fname)[1].lower()
+            if ext not in ALLOWED_EXTS:
+                continue
+            if any(fname.lower().endswith(s) for s in SKIP_SUFFIXES):
+                continue
+            if fname == "package-lock.json":
+                continue
+            try:
+                with open(full, "r", encoding="utf-8", errors="replace") as f:
+                    assets[rel] = f.read()
+            except Exception:
+                pass
+    return assets
+
+
+def _build_asset_context(assets: dict[str, str]) -> str:
+    """Format loaded template files into a prompt-friendly block."""
+    if not assets:
+        return ""
+
+    PRIORITY = [
+        "index.html", "login.html", "register.html", "tables.html",
+        "charts.html", "cards.html", "blank.html", "404.html",
+        "css/sb-admin-2.css", "js/sb-admin-2.js",
+        "js/demo/chart-area-demo.js", "js/demo/chart-bar-demo.js",
+        "js/demo/chart-pie-demo.js", "js/demo/datatables-demo.js",
+    ]
+
+    ordered_keys = []
+    for p in PRIORITY:
+        if p in assets:
+            ordered_keys.append(p)
+    for k in sorted(assets.keys()):
+        if k not in ordered_keys:
+            ordered_keys.append(k)
+
+    parts = []
+    total_chars = 0
+    MAX_TOTAL = 48000
+
+    for path in ordered_keys:
+        content = assets[path]
+        if len(content) > 8000:
+            content = content[:8000] + "\n... (truncated)"
+        if total_chars + len(content) > MAX_TOTAL:
+            parts.append(f"── {path} ── (skipped, context budget reached)")
+            continue
+        parts.append(f"── {path} ──\n{content}")
+        total_chars += len(content)
+
+    return "\n\n".join(parts)
+
+
+# Cache template context once
+_CACHED_TEMPLATE_CONTEXT: str | None = None
+
+
+def _get_template_context() -> str:
+    """Get cached template context string."""
+    global _CACHED_TEMPLATE_CONTEXT
+    if _CACHED_TEMPLATE_CONTEXT is None:
+        assets = _load_template_assets()
+        _CACHED_TEMPLATE_CONTEXT = _build_asset_context(assets)
+    return _CACHED_TEMPLATE_CONTEXT
+
+
+def _build_code_gen_prompt(technical_spec: dict) -> str:
+    """Build the code generation prompt with or without template context."""
+    template_context = _get_template_context()
+    spec_fields = dict(
+        problem_statement_or_domain=technical_spec.get("problem_statement_or_domain", ""),
+        auth_and_users=technical_spec.get("auth_and_users", ""),
+        data_and_storage=technical_spec.get("data_and_storage", ""),
+        ui_complexity=technical_spec.get("ui_complexity", ""),
+        business_logic=technical_spec.get("business_logic", ""),
+        integrations=technical_spec.get("integrations", ""),
+    )
+    if template_context:
+        return CODE_GENERATION_PROMPT_WITH_TEMPLATE.format(
+            **spec_fields,
+            template_context=template_context,
+        )
+    else:
+        return CODE_GENERATION_PROMPT_NO_TEMPLATE.format(**spec_fields)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -549,28 +705,22 @@ def call_tailored_analyzer(history: list, current_spec: dict) -> dict:
 
 
 def generate_code_with_hf(technical_spec: dict) -> dict:
-    """Generate code using HF Inference API."""
+    """Generate code using HF Inference API with template-aware prompt."""
+    if not hf_client:
+        raise Exception("No HuggingFace client configured")
     try:
-        API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.3"
-        headers = {"Authorization": f"Bearer {_hf_token_check()}"}
+        prompt = _build_code_gen_prompt(technical_spec)
 
-        prompt = (
-            "[INST] You are an expert web developer. Based on the following application specification, "
-            "generate the complete source code for a functional web application using HTML, CSS (Tailwind allowed), "
-            "and JavaScript. Provide the code in three clearly labelled blocks: HTML, CSS, and JS. "
-            "Use modern best practices. Output code only — no explanations.\n\n"
-            f"Specification:\n{json.dumps(technical_spec, indent=2)} [/INST]"
+        response = hf_client.chat_completion(
+            model="Qwen/Qwen2.5-Coder-32B-Instruct",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=4096,
+            temperature=0.2,
         )
 
-        response = requests.post(
-            API_URL,
-            headers=headers,
-            json={"inputs": prompt, "parameters": {"max_new_tokens": 2000}},
-            timeout=120,
-        )
-        response.raise_for_status()
-        result = response.json()
-        generated_text = result[0]["generated_text"]
+        generated_text = response.choices[0].message.content
+        if not generated_text:
+            raise Exception("No content received from model")
 
         html, css, js = extract_code_blocks(generated_text)
         return {"html": html, "css": css, "js": js}
@@ -584,21 +734,14 @@ def generate_code_with_hf(technical_spec: dict) -> dict:
 
 
 def generate_code_with_groq(technical_spec: dict) -> dict:
-    """Generate code using Qwen Coder model via HuggingFace.
+    """Generate code using Qwen Coder model via HuggingFace with template-aware prompt.
 
     Uses the Qwen2.5-Coder-32B-Instruct model for high-quality code generation.
     """
     if not hf_client:
         raise Exception("No HuggingFace client configured")
-        
-    prompt = CODE_GENERATION_PROMPT.format(
-        problem_statement_or_domain=technical_spec.get("problem_statement_or_domain", ""),
-        auth_and_users=technical_spec.get("auth_and_users", ""),
-        data_and_storage=technical_spec.get("data_and_storage", ""),
-        ui_complexity=technical_spec.get("ui_complexity", ""),
-        business_logic=technical_spec.get("business_logic", ""),
-        integrations=technical_spec.get("integrations", "")
-    )
+
+    prompt = _build_code_gen_prompt(technical_spec)
     
     try:
         response = hf_client.chat_completion(

@@ -118,7 +118,8 @@ groq_client = groq.Groq(api_key=groq_api_key) if groq_api_key else None
 hf_token = os.getenv("HUGGINGFACE_API_KEY")
 hf_client = InferenceClient(api_key=hf_token) if hf_token else None
 
-MISTRAL_PROMPT_TEMPLATE = """You are an expert Frontend Developer. Your task is to generate a fully functioning web application based on the following requirements:
+# Prompt template used for code generation. Historically called MISTRAL, now targeted at Qwen coder model.
+CODE_PROMPT_TEMPLATE = """You are an expert Frontend Developer. Your task is to generate a fully functioning web application based on the following requirements:
 
 Authentication/Users: {auth_and_users}
 Data/Storage: {data_and_storage}
@@ -286,7 +287,7 @@ async def generate_app(request: GenerateRequest, db: Session = Depends(get_db)):
     
     # Format the prompt
     reqs = request.requirements_object
-    prompt = MISTRAL_PROMPT_TEMPLATE.format(
+    prompt = CODE_PROMPT_TEMPLATE.format(
         auth_and_users=reqs.auth_and_users,
         data_and_storage=reqs.data_and_storage,
         ui_complexity=reqs.ui_complexity,
@@ -295,8 +296,8 @@ async def generate_app(request: GenerateRequest, db: Session = Depends(get_db)):
     )
     
     try:
-        # Generate with Mistral
-        # Using mistralai/Mistral-7B-Instruct-v0.2 as a reliable standard code generation model
+        # Generate with Qwen coder model
+        # Using Qwen/Qwen2.5-coder for improved code generation (replacing earlier Mistral usage)
         response = hf_client.chat_completion(
             model="mistralai/Mistral-7B-Instruct-v0.2",
             messages=[{"role": "user", "content": prompt}],

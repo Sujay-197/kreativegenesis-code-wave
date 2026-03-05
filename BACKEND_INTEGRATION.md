@@ -87,7 +87,7 @@ HF_API_KEY=your_hf_api_key              # Alternative to HUGGINGFACE_API_KEY
 ### Simple Mode
 - Uses **Groq Llama 3 8B** for conversational questions (via groq_client)
 - Uses **HF Qwen 2.5 7B** for requirements extraction via HF Inference API
-- Uses **Mistral 7B** via Groq Hub for code generation
+- Uses **Qwen 2.5 Coder** (via HF/Groq) for code generation (replacing earlier Mistral 7B)
 - Stores apps in SQLite database (`GeneratedApp` model)
 - Keeps full conversation history with model responses
 

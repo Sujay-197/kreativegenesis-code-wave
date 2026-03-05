@@ -16,15 +16,19 @@ from dotenv import load_dotenv
 from huggingface_hub import InferenceClient
 from sqlalchemy.orm import Session
 from database import SessionLocal, GeneratedApp
+from orchestrator import run_pipeline, get_job_status, get_job_file, list_all_jobs, build_job_zip
 
 load_dotenv()
 
 app = FastAPI(title="AppForge AI Backend — Unified")
 
-# CORS Setup
+# CORS Setup — restrict origins in production via ALLOWED_ORIGINS env var
+_allowed_origins = os.getenv("ALLOWED_ORIGINS", "*")
+origins = [o.strip() for o in _allowed_origins.split(",")] if _allowed_origins != "*" else ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -78,10 +82,51 @@ class GenerateRequest(BaseModel):
     requirements_object: Optional[RequirementsObject] = None
 
 
+class DebugGenerateRequest(BaseModel):
+    specification: Dict[str, str]
+
+
+class DebugGenerateResponse(BaseModel):
+    message: str
+    code: Dict[str, str]
+
+
 class GenerateResponse(BaseModel):
     app_id: Optional[str] = None
     message: str = "App generation started successfully."
     code: Optional[Dict[str, str]] = None
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MULTI-AGENT PIPELINE MODELS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class PipelineRequest(BaseModel):
+    prompt: str = Field(description="Application description for the multi-agent pipeline.")
+    provider: str = Field(default="groq", description="LLM provider: 'groq' or 'huggingface'.")
+
+
+class PipelineResponse(BaseModel):
+    job_id: str
+    message: str = "Pipeline started. Poll /api/pipeline/status/{job_id} for progress."
+
+
+class JobStatusResponse(BaseModel):
+    job_id: str
+    status: str
+    detail: str = ""
+    files: Optional[list[str]] = None
+    project_dir: Optional[str] = None
+    architecture: Optional[dict] = None
+    prompt: Optional[str] = None
+    created_at: Optional[str] = None
+    completed_at: Optional[str] = None
+
+
+class JobFileResponse(BaseModel):
+    job_id: str
+    file_path: str
+    content: str
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -316,7 +361,8 @@ def _hf_token_check() -> str:
 def call_tailored_companion(history: list, current_message: str) -> str:
     """Tailored Mode: Get conversational question via HF Inference API."""
     try:
-        API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.3"
+        # conversation can continue using a general Qwen instruct model
+        API_URL = "https://api-inference.huggingface.co/models/Qwen/Qwen2.5-7B-Instruct"
         headers = {"Authorization": f"Bearer {_hf_token_check()}"}
 
         conversation = "\n".join(
@@ -350,7 +396,7 @@ def call_tailored_companion(history: list, current_message: str) -> str:
 def call_tailored_analyzer(history: list) -> dict:
     """Tailored Mode: Extract requirements via HF Inference API."""
     try:
-        API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.3"
+        API_URL = "https://api-inference.huggingface.co/models/Qwen/Qwen2.5-7B-Instruct"
         headers = {"Authorization": f"Bearer {_hf_token_check()}"}
 
         conversation = "\n".join(
@@ -424,7 +470,11 @@ def generate_code_with_hf(technical_spec: dict) -> dict:
 
 
 def generate_code_with_groq(technical_spec: dict) -> dict:
-    """Generate code using Groq Mistral (alternative)."""
+    """Generate code using Groq as an alternate path; uses Qwen coder model.
+
+    This helper is rarely used but kept for compatibility. It calls HF chat
+    with the Qwen coder model rather than Mistral.
+    """
     if not hf_client:
         raise Exception("No HuggingFace client configured")
         
@@ -438,7 +488,7 @@ def generate_code_with_groq(technical_spec: dict) -> dict:
     
     try:
         response = hf_client.chat_completion(
-            model="mistralai/Mistral-7B-Instruct-v0.2",
+            model="Qwen/Qwen2.5-coder",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=2048,
             temperature=0.2
@@ -628,6 +678,130 @@ async def download_app(session_id: str):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# DEBUG ENDPOINT — GENERATE APP FROM JSON
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/api/debug/generate", response_model=DebugGenerateResponse)
+async def debug_generate_app(request: DebugGenerateRequest):
+    """
+    Debug endpoint: Accepts a JSON specification and generates a working app using Mistral.
+    This endpoint is for testing/debugging purposes.
+    
+    Expected JSON structure:
+    {
+      "auth_and_users": "...",
+      "data_and_storage": "...",
+      "ui_complexity": "...",
+      "business_logic": "...",
+      "integrations": "..."
+    }
+    """
+    if not hf_client:
+        raise HTTPException(status_code=500, detail="Hugging Face API key is missing.")
+    
+    spec = request.specification
+    
+    # Validate required fields
+    required_fields = ["auth_and_users", "data_and_storage", "ui_complexity", "business_logic", "integrations"]
+    missing_fields = [f for f in required_fields if f not in spec]
+    
+    if missing_fields:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Missing required fields: {', '.join(missing_fields)}"
+        )
+    
+    try:
+        # Generate code using HF Inference API with Mistral
+        code_data = generate_code_with_hf(spec)
+        
+        return DebugGenerateResponse(
+            message="App generated successfully from JSON specification",
+            code=code_data
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# API ROUTES — MULTI-AGENT PIPELINE
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+@app.post("/api/pipeline/start", response_model=PipelineResponse)
+async def start_pipeline(request: PipelineRequest):
+    """
+    Start the multi-agent code generation pipeline.
+
+    Accepts a prompt describing the desired application.
+    Returns a job_id immediately — generation runs in the background.
+    """
+    if not request.prompt or len(request.prompt.strip()) < 10:
+        raise HTTPException(status_code=400, detail="Prompt must be at least 10 characters.")
+
+    provider = request.provider if request.provider in ("groq", "huggingface") else "groq"
+
+    try:
+        job_id = await run_pipeline(request.prompt.strip(), provider)
+        return PipelineResponse(job_id=job_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to start pipeline: {str(e)}")
+
+
+@app.get("/api/pipeline/status/{job_id}", response_model=JobStatusResponse)
+async def pipeline_status(job_id: str):
+    """Get the current status of a generation job."""
+    result = get_job_status(job_id)
+    if result.get("status") == "not_found":
+        raise HTTPException(status_code=404, detail="Job not found")
+    return JobStatusResponse(**result)
+
+
+@app.get("/api/pipeline/file/{job_id}")
+async def pipeline_file(job_id: str, path: str):
+    """
+    Retrieve a specific generated file's content.
+
+    Query parameter 'path' specifies the relative file path within the project.
+    """
+    if not path:
+        raise HTTPException(status_code=400, detail="'path' query parameter is required")
+
+    content = get_job_file(job_id, path)
+    if content is None:
+        raise HTTPException(status_code=404, detail=f"File not found: {path}")
+
+    return JobFileResponse(job_id=job_id, file_path=path, content=content)
+
+
+@app.get("/api/pipeline/jobs")
+async def pipeline_list_jobs():
+    """List all generation jobs."""
+    return list_all_jobs()
+
+
+@app.get("/api/pipeline/download/{job_id}")
+async def pipeline_download(job_id: str):
+    """Download an entire generated project as a ZIP archive."""
+    status = get_job_status(job_id)
+    if status.get("status") != "completed":
+        raise HTTPException(status_code=400, detail=f"Job is not completed (status: {status.get('status')})")
+
+    zip_bytes = build_job_zip(job_id)
+    if not zip_bytes:
+        raise HTTPException(status_code=404, detail="No generated files found for this job")
+
+    zip_buffer = io.BytesIO(zip_bytes)
+    zip_buffer.seek(0)
+
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename={job_id}.zip"},
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # HEALTH CHECK
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -638,4 +812,6 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8000, reload=True)
+    host = os.getenv("HOST", "127.0.0.1")
+    port = int(os.getenv("PORT", "8000"))
+    uvicorn.run(app, host=host, port=port)

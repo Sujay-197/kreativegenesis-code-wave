@@ -10,3 +10,6 @@ groq>=0.4.2
 python-dotenv==1.0.1
 sqlalchemy>=2.0.0
 huggingface_hub>=0.21.4
+requests>=2.31.0
+# Dev/Test
+pytest>=7.0

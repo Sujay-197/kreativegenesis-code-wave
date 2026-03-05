@@ -5,7 +5,7 @@ Run without making actual API calls by mocking all external services.
 """
 
 import json
-import pytest
+import pytest  # type: ignore[import]
 from unittest.mock import Mock, patch, MagicMock
 from typing import Dict, Any
 

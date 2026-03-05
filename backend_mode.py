@@ -60,6 +60,7 @@ class ChatRequest(BaseModel):
 
 
 class RequirementsObject(BaseModel):
+    problem_statement_or_domain: str = Field(default="Not yet discussed", description="What core problem the app solves and in which domain/context it will be used.")
     auth_and_users: str = Field(description="Details regarding user accounts, roles, or authentication needs.")
     data_and_storage: str = Field(description="Details on what data needs to be stored and tracked.")
     ui_complexity: str = Field(description="Details on the user interface requirements and devices it will be used on.")
@@ -151,12 +152,12 @@ Question Guidelines:
 3. Lead with curiosity about their situation, not about technical requirements
 4. Avoid buzzwords completely (no "database," "authentication," "REST APIs," "UI components," etc.)
 5. Never use lists or multiple-choice—keep it like a conversation between two people
-6. Subtly explore these 5 dimensions without them feeling like a checklist: Who uses this tool? What data matters most? How should it look and feel? What complex workflows run behind the scenes? Does this connect to other tools they use?
+6. Subtly explore these 6 dimensions without them feeling like a checklist: What problem/domain is this for? Who uses this tool? What data matters most? How should it look and feel? What complex workflows run behind the scenes? Does this connect to other tools they use?
 
 CRITICAL — DO NOT REPEAT:
 - NEVER ask about a topic that has already been discussed or answered.
 - Review the "Requirements gathered so far" section below. Any dimension marked as anything other than "Not yet discussed" has ALREADY been covered—move on to an uncovered dimension.
-- If all 5 dimensions have some information, ask a deeper follow-up about the LEAST clear one, or ask if there's anything else they'd like to add.
+- If all 6 dimensions have some information, ask a deeper follow-up about the LEAST clear one, or ask if there's anything else they'd like to add.
 - Each question must explore NEW ground. If the user has told you about their users, don't ask about users again. If they've described their data, don't ask about data again.
 
 Connection Strategy:
@@ -168,15 +169,59 @@ Connection Strategy:
 Output ONLY your conversational response (the next question). Do not output JSON.
 """
 
+# Dimension labels for deficit tracking
+_DIMENSION_LABELS = {
+    "problem_statement_or_domain": "What problem this app solves and its domain/context",
+    "auth_and_users": "Who will use this app (single user or multiple, any login needs)",
+    "data_and_storage": "What information/data the app needs to track",
+    "ui_complexity": "How the app should look and feel (views, layout, device)",
+    "business_logic": "Rules, calculations, or workflows the app should handle automatically",
+    "integrations": "Whether the app needs to connect to external services",
+}
+
+
+def _is_filled(val: str | None) -> bool:
+    """Check if a requirement dimension has real info (not empty/placeholder)."""
+    if not val:
+        return False
+    return val.strip().lower() not in ("not yet discussed", "n/a", "none", "unknown", "")
+
+
+def _get_deficits(requirements: dict) -> list[str]:
+    """Return list of dimension names that are still unfilled."""
+    deficits = []
+    for key, label in _DIMENSION_LABELS.items():
+        val = requirements.get(key, "Not yet discussed")
+        if not _is_filled(val):
+            deficits.append(label)
+    return deficits
+
+
 def build_simple_llama_prompt(current_requirements: dict) -> str:
-    """Build the full Llama system prompt with current requirements context."""
+    """Build the full Llama system prompt with deficit-driven question targeting."""
     req_summary = "\n".join(
         f"  - {dim}: {val}" for dim, val in current_requirements.items()
     )
+
+    deficits = _get_deficits(current_requirements)
+
+    if deficits:
+        deficit_block = (
+            "\n\n⚠️ MISSING INFORMATION — Your next question MUST explore ONE of these gaps:\n"
+            + "\n".join(f"  • {d}" for d in deficits)
+            + "\n\nPick the most natural gap to ask about given what the user just told you. "
+            "Do NOT ask about dimensions that already have information."
+        )
+    else:
+        deficit_block = (
+            "\n\nAll 6 dimensions have some information gathered. "
+            "Ask if there's anything else they'd like to add, or a deeper follow-up on the least detailed dimension."
+        )
+
     return (
         SIMPLE_MODE_LLAMA_PROMPT
-        + f"\n\nRequirements gathered so far:\n{req_summary}\n\n"
-        + "Focus your next question on a dimension that is still 'Not yet discussed' or needs more detail."
+        + f"\n\nRequirements gathered so far:\n{req_summary}"
+        + deficit_block
     )
 
 TAILORED_MODE_COMPANION_PROMPT = """You are AppForge AI's Tailored Mode Companion—a warm, insightful guide who genuinely understands the challenges small business owners, NGOs, educators, and independent operators face daily.
@@ -226,7 +271,7 @@ def build_tailored_llama_prompt(current_spec: dict) -> str:
         + "Focus your next question on a dimension that is still 'Not yet discussed' or needs more detail."
     )
 
-REQUIREMENTS_EXTRACTION_PROMPT = """You are a seasoned technical analyzer. Review the FULL conversation history and extract ALL of the user's requirements into 5 dimensions.
+REQUIREMENTS_EXTRACTION_PROMPT = """You are a seasoned technical analyzer. Review the FULL conversation history and extract ALL of the user's requirements into 6 dimensions.
 
 IMPORTANT RULES:
 1. You MUST preserve and build upon previously extracted requirements. Never lose information that was discussed earlier in the conversation.
@@ -236,6 +281,7 @@ IMPORTANT RULES:
 
 You MUST output ONLY valid JSON matching this exact structure:
 {
+  "problem_statement_or_domain": "string",
   "auth_and_users": "string",
   "data_and_storage": "string",
   "ui_complexity": "string",
@@ -258,6 +304,7 @@ def build_extraction_prompt(previous_requirements: dict) -> str:
 
 CODE_GENERATION_PROMPT = """You are an expert Frontend Developer. Your task is to generate a fully functioning web application based on the following requirements:
 
+Problem/Domain: {problem_statement_or_domain}
 Authentication/Users: {auth_and_users}
 Data/Storage: {data_and_storage}
 UI Complexity: {ui_complexity}
@@ -321,6 +368,7 @@ def get_or_create_session(session_id: Optional[str] = None, mode: str = "simple"
             "mode": mode,
             "history": [],
             "technical_spec": {
+                "problem_statement_or_domain": "Not yet discussed",
                 "auth_and_users": "Not yet discussed",
                 "data_and_storage": "Not yet discussed",
                 "ui_complexity": "Not yet discussed",
@@ -388,7 +436,7 @@ def get_simple_mode_response(conversation_history: list, current_requirements: d
 
     # Merge: keep previous value if Qwen returned empty / "Not yet discussed" for a field
     merged_requirements = {}
-    for key in ["auth_and_users", "data_and_storage", "ui_complexity", "business_logic", "integrations"]:
+    for key in ["problem_statement_or_domain", "auth_and_users", "data_and_storage", "ui_complexity", "business_logic", "integrations"]:
         new_val = req_data.get(key, "Not yet discussed")
         old_val = current_requirements.get(key, "Not yet discussed")
         if (not new_val or new_val == "Not yet discussed") and old_val and old_val != "Not yet discussed":
@@ -397,9 +445,9 @@ def get_simple_mode_response(conversation_history: list, current_requirements: d
             merged_requirements[key] = new_val if new_val else "Not yet discussed"
 
     # Calculate confidence: count how many dimensions have real info
-    filled = sum(1 for v in merged_requirements.values() if v and v != "Not yet discussed")
+    filled = sum(1 for v in merged_requirements.values() if _is_filled(v))
     raw_confidence = float(req_data.get("confidence_score", 0.0))
-    min_confidence = filled * 16.0  # 5 filled = at least 80
+    min_confidence = (filled / 6.0) * 100.0
     confidence = max(raw_confidence, min_confidence)
         
     final_output = {
@@ -536,15 +584,15 @@ def generate_code_with_hf(technical_spec: dict) -> dict:
 
 
 def generate_code_with_groq(technical_spec: dict) -> dict:
-    """Generate code using Groq as an alternate path; uses Qwen coder model.
+    """Generate code using Qwen Coder model via HuggingFace.
 
-    This helper is rarely used but kept for compatibility. It calls HF chat
-    with the Qwen coder model rather than Mistral.
+    Uses the Qwen2.5-Coder-32B-Instruct model for high-quality code generation.
     """
     if not hf_client:
         raise Exception("No HuggingFace client configured")
         
     prompt = CODE_GENERATION_PROMPT.format(
+        problem_statement_or_domain=technical_spec.get("problem_statement_or_domain", ""),
         auth_and_users=technical_spec.get("auth_and_users", ""),
         data_and_storage=technical_spec.get("data_and_storage", ""),
         ui_complexity=technical_spec.get("ui_complexity", ""),
@@ -554,9 +602,9 @@ def generate_code_with_groq(technical_spec: dict) -> dict:
     
     try:
         response = hf_client.chat_completion(
-            model="Qwen/Qwen2.5-coder",
+            model="Qwen/Qwen2.5-Coder-32B-Instruct",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=2048,
+            max_tokens=4096,
             temperature=0.2
         )
         
@@ -586,6 +634,7 @@ async def simple_mode_chat(request: ChatRequest):
     
     history = sessions[session_id]["history"]
     current_requirements = sessions[session_id].get("technical_spec", {
+        "problem_statement_or_domain": "Not yet discussed",
         "auth_and_users": "Not yet discussed",
         "data_and_storage": "Not yet discussed",
         "ui_complexity": "Not yet discussed",
@@ -640,7 +689,7 @@ async def simple_mode_generate(request: GenerateRequest, db: Session = Depends(g
         raise HTTPException(status_code=400, detail="requirements_object is required")
     
     try:
-        code_data = generate_code_with_groq(reqs.dict())
+        code_data = generate_code_with_groq(reqs.model_dump())
         
         # Save to database
         new_app = GeneratedApp(

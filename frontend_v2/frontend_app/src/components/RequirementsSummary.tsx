@@ -5,6 +5,7 @@ import type { RequirementsState } from '../lib/aiEngine';
 
 interface RequirementsSummaryProps {
   requirements: RequirementsState;
+  summaryParagraph?: string;
   appName: string;
   mode: 'simple' | 'expert';
   onConfirm: () => void;
@@ -13,6 +14,7 @@ interface RequirementsSummaryProps {
 
 const RequirementsSummary: React.FC<RequirementsSummaryProps> = ({
   requirements,
+  summaryParagraph,
   appName,
   mode,
   onConfirm,
@@ -47,21 +49,27 @@ const RequirementsSummary: React.FC<RequirementsSummaryProps> = ({
       )}
 
       <div className="space-y-3 mb-6">
-        {items.map((dim, i) => (
-          <motion.div
-            key={dim.label}
-            initial={{ opacity: 0, x: -8 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: i * 0.06 }}
-            className="flex items-start gap-3"
-          >
-            <CheckCircle2 size={14} className="text-forge-accent mt-0.5 flex-shrink-0" />
-            <div>
-              <span className="text-xs font-semibold text-forge-muted-light">{dim.label}: </span>
-              <span className="text-xs text-forge-text">{dim.value}</span>
-            </div>
-          </motion.div>
-        ))}
+        {mode === 'simple' && summaryParagraph ? (
+          <div className="px-4 py-3 rounded-xl bg-forge-accent/10 border border-forge-accent/20">
+            <p className="text-sm leading-relaxed text-forge-text">{summaryParagraph}</p>
+          </div>
+        ) : (
+          items.map((dim, i) => (
+            <motion.div
+              key={dim.label}
+              initial={{ opacity: 0, x: -8 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: i * 0.06 }}
+              className="flex items-start gap-3"
+            >
+              <CheckCircle2 size={14} className="text-forge-accent mt-0.5 flex-shrink-0" />
+              <div>
+                <span className="text-xs font-semibold text-forge-muted-light">{dim.label}: </span>
+                <span className="text-xs text-forge-text">{dim.value}</span>
+              </div>
+            </motion.div>
+          ))
+        )}
       </div>
 
       <div className="flex gap-3">

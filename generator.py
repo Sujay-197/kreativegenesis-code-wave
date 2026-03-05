@@ -17,6 +17,92 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# ─── Template loading (shared with main.py) ───
+TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "template")
+
+
+def _load_template_assets() -> dict[str, str]:
+    """Read core template files from the template/ folder.
+    Skips vendor libraries, SVG icons, and other bulky assets."""
+    assets: dict[str, str] = {}
+    if not os.path.isdir(TEMPLATE_DIR):
+        return assets
+
+    SKIP_DIRS = {"vendor", "node_modules", "scss", "less", "sprites", "svgs", "webfonts", "metadata", ".git"}
+    ALLOWED_EXTS = {".html", ".css", ".js", ".py", ".sql", ".json"}
+    SKIP_SUFFIXES = {".min.css", ".min.js", ".map", ".min.map"}
+
+    for root, dirs, files in os.walk(TEMPLATE_DIR):
+        dirs[:] = [d for d in dirs if d.lower() not in SKIP_DIRS]
+        for fname in files:
+            full = os.path.join(root, fname)
+            rel = os.path.relpath(full, TEMPLATE_DIR).replace("\\", "/")
+            ext = os.path.splitext(fname)[1].lower()
+            if ext not in ALLOWED_EXTS:
+                continue
+            if any(fname.lower().endswith(s) for s in SKIP_SUFFIXES):
+                continue
+            if fname == "package-lock.json":
+                continue
+            try:
+                with open(full, "r", encoding="utf-8", errors="replace") as f:
+                    assets[rel] = f.read()
+            except Exception:
+                pass
+    return assets
+
+
+def _build_asset_context(assets: dict[str, str]) -> str:
+    """Format loaded template files into a prompt-friendly block."""
+    if not assets:
+        return ""
+
+    PRIORITY = [
+        "index.html", "login.html", "register.html", "tables.html",
+        "charts.html", "cards.html", "blank.html", "404.html",
+        "css/sb-admin-2.css", "js/sb-admin-2.js",
+        "js/demo/chart-area-demo.js", "js/demo/chart-bar-demo.js",
+        "js/demo/chart-pie-demo.js", "js/demo/datatables-demo.js",
+    ]
+
+    ordered_keys = []
+    for p in PRIORITY:
+        if p in assets:
+            ordered_keys.append(p)
+    for k in sorted(assets.keys()):
+        if k not in ordered_keys:
+            ordered_keys.append(k)
+
+    parts = []
+    total_chars = 0
+    MAX_TOTAL = 32000  # ~8k tokens budget for template context per file
+
+    for path in ordered_keys:
+        content = assets[path]
+        if len(content) > 6000:
+            content = content[:6000] + "\n... (truncated)"
+        if total_chars + len(content) > MAX_TOTAL:
+            parts.append(f"── {path} ── (skipped, context budget reached)")
+            continue
+        parts.append(f"── {path} ──\n{content}")
+        total_chars += len(content)
+
+    return "\n\n".join(parts)
+
+
+# Cache template assets once at module load
+_TEMPLATE_ASSETS: dict[str, str] | None = None
+_TEMPLATE_CONTEXT: str | None = None
+
+
+def _get_template_context() -> str:
+    """Get cached template context string."""
+    global _TEMPLATE_ASSETS, _TEMPLATE_CONTEXT
+    if _TEMPLATE_CONTEXT is None:
+        _TEMPLATE_ASSETS = _load_template_assets()
+        _TEMPLATE_CONTEXT = _build_asset_context(_TEMPLATE_ASSETS)
+    return _TEMPLATE_CONTEXT
+
 GENERATOR_SYSTEM_PROMPT = """You are an expert full-stack developer. Generate clean, production-ready code for a single file in a web application project.
 
 CONTEXT:
@@ -29,6 +115,8 @@ CONTEXT:
 SIBLING FILES (other files in this project for import/reference context):
 {sibling_files}
 
+{template_section}
+
 RULES:
 1. Output ONLY the raw code for this file. No markdown fences, no explanations, no comments like "here is the code".
 2. Code must be modular with clear docstrings for every function and class.
@@ -36,13 +124,22 @@ RULES:
 4. Separate business logic from API route definitions.
 5. Handle errors gracefully with try/except and proper HTTP status codes.
 6. For Python backend files: use FastAPI, SQLAlchemy, Pydantic models.
-7. For HTML files: use semantic HTML5, include proper meta tags, link CSS/JS files correctly.
-8. For CSS files: use clean, responsive design. Tailwind CDN is acceptable.
+7. For HTML files: use the SB Admin 2 template structure (Bootstrap 4, sidebar, topbar, card-based content). Keep vendor CDN references to Bootstrap, jQuery, FontAwesome, Chart.js, DataTables using these paths:
+   - vendor/fontawesome-free/css/all.min.css
+   - css/sb-admin-2.min.css
+   - vendor/jquery/jquery.min.js
+   - vendor/bootstrap/js/bootstrap.bundle.min.js
+   - vendor/jquery-easing/jquery.easing.min.js
+   - js/sb-admin-2.min.js
+   - vendor/chart.js/Chart.min.js (if charts needed)
+   - vendor/datatables/jquery.dataTables.min.js + dataTables.bootstrap4.min.js (if tables needed)
+8. For CSS files: use clean, responsive design. Build on top of sb-admin-2.css, adding only custom styles.
 9. For JS files: use modern ES6+, fetch API for HTTP calls, modular functions.
 10. For requirements.txt: list only necessary packages with versions.
 11. For database.py: use SQLAlchemy with SQLite, include engine setup and session factory.
 12. Import paths must be correct relative to the project structure.
 13. Backend main.py must mount routes from the routes/ directory and set up CORS.
+14. All frontend functionality must work standalone — use localStorage for data persistence.
 
 Output ONLY the file content. No wrapping, no markdown.
 """
@@ -108,6 +205,18 @@ def _generate_file_code_sync(file_info: dict, plan: dict, provider: str) -> str:
     """Synchronous version of file code generation (runs in executor)."""
     sibling_context = _build_sibling_context(plan.get("files", []), file_info["path"])
 
+    # Build template section for HTML/CSS/JS files
+    file_ext = os.path.splitext(file_info["path"])[1].lower()
+    template_section = ""
+    if file_ext in (".html", ".css", ".js"):
+        template_ctx = _get_template_context()
+        if template_ctx:
+            template_section = (
+                "TEMPLATE REFERENCE (SB Admin 2 — Bootstrap 4 dashboard template).\n"
+                "Use this as your starting base. Adapt the template structure, don't start from scratch:\n\n"
+                + template_ctx
+            )
+
     prompt = GENERATOR_SYSTEM_PROMPT.format(
         project_name=plan.get("project_name", "app"),
         project_description=plan.get("description", ""),
@@ -117,6 +226,7 @@ def _generate_file_code_sync(file_info: dict, plan: dict, provider: str) -> str:
         file_path=file_info["path"],
         file_description=file_info.get("description", ""),
         sibling_files=sibling_context,
+        template_section=template_section,
     )
 
     # type: ignore[list-item]
@@ -137,10 +247,10 @@ def _generate_file_code_sync(file_info: dict, plan: dict, provider: str) -> str:
     else:
         client = _get_hf_client()
         response = client.chat_completion(
-            model="Qwen/Qwen2.5-7B-Instruct",
+            model="Qwen/Qwen2.5-Coder-32B-Instruct",
             messages=messages,
             temperature=0.2,
-            max_tokens=4000,
+            max_tokens=4096,
         )
         raw = response.choices[0].message.content or ""
 

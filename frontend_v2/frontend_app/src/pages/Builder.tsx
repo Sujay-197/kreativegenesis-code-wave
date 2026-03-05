@@ -81,6 +81,7 @@ export default function Builder() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [requirements, setRequirements] = useState<RequirementsState>(initialRequirements());
   const [appName, setAppName] = useState('');
+  const [chatSummary, setChatSummary] = useState('');
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [questionCount, setQuestionCount] = useState(0);
   const [generationProgress, setGenerationProgress] = useState(0);
@@ -134,6 +135,7 @@ export default function Builder() {
       let nextQuestion = '';
       let updatedRequirements = requirements;
       let detectedName = '';
+      let summaryParagraph = chatSummary;
       let isReady = false;
 
       try {
@@ -159,6 +161,7 @@ export default function Builder() {
         const data = await res.json();
         sessionIdRef.current = data.session_id;
         nextQuestion = data.next_question;
+        summaryParagraph = data.chat_summary || summaryParagraph;
 
         if (mode === 'expert') {
           updatedRequirements = mapSpecToRequirements(data.technical_spec);
@@ -195,6 +198,7 @@ export default function Builder() {
       ];
 
       setRequirements(updatedRequirements);
+      setChatSummary(summaryParagraph);
       if (detectedName) setAppName(detectedName);
       setQuestionCount((c) => c + 1);
 
@@ -261,6 +265,7 @@ export default function Builder() {
           : {
             session_id: sessionIdRef.current,
             requirements_object: {
+              problem_statement_or_domain: chatSummary || appName || 'Not yet discussed',
               auth_and_users: requirements.auth.value ?? '',
               data_and_storage: requirements.data.value ?? '',
               ui_complexity: requirements.ui.value ?? '',
@@ -302,13 +307,14 @@ export default function Builder() {
       setGeneratedHTML(html);
       setTimeout(() => setStage('preview'), 500);
     })();
-  }, [requirements, appName, mode]);
+  }, [requirements, appName, mode, chatSummary]);
 
   const handleRestart = useCallback(() => {
     setStage('mode-select');
     setMessages([]);
     setRequirements(initialRequirements());
     setAppName('');
+    setChatSummary('');
     setQuestionCount(0);
     setGenerationProgress(0);
     setGeneratedHTML('');
@@ -454,6 +460,7 @@ export default function Builder() {
                     >
                       <RequirementsSummary
                         requirements={requirements}
+                        summaryParagraph={chatSummary}
                         appName={appName}
                         mode={mode}
                         onConfirm={handleConfirmGenerate}

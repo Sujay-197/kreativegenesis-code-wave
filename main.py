@@ -78,12 +78,22 @@ APP_TEMPLATES = {
 }
 
 DEFAULT_REQUIREMENTS = {
+    "problem_statement_or_domain": "Not yet discussed",
     "auth_and_users": "Not yet discussed",
     "data_and_storage": "Not yet discussed",
     "ui_complexity": "Not yet discussed",
     "business_logic": "Not yet discussed",
     "integrations": "Not yet discussed"
 }
+
+
+def _normalize_requirements(requirements: dict | None) -> dict:
+    """Ensure requirements dict always has all expected keys for backward compatibility."""
+    normalized = DEFAULT_REQUIREMENTS.copy()
+    if requirements:
+        for k, v in requirements.items():
+            normalized[k] = v
+    return normalized
 
 
 def _is_filled(val: str | None) -> bool:
@@ -97,6 +107,7 @@ def _get_deficits(requirements: dict) -> list[str]:
     """Return list of dimension names that are still unfilled or have only defaults."""
     deficits = []
     labels = {
+        "problem_statement_or_domain": "What problem this app solves and its domain/context",
         "auth_and_users": "Who will use this app (single user or multiple, any login needs)",
         "data_and_storage": "What information/data the app needs to track",
         "ui_complexity": "How the app should look and feel (views, layout, device)",
@@ -144,7 +155,7 @@ def _load_session(db: Session, session_id: str | None) -> tuple[str, list, dict]
         db_session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
         if db_session:
             history = json.loads(db_session.conversation_history)
-            requirements = json.loads(db_session.requirements_json)
+            requirements = _normalize_requirements(json.loads(db_session.requirements_json))
             return session_id, history, requirements
 
     # Create new session
@@ -187,12 +198,12 @@ Question Guidelines:
 3. Lead with curiosity about their situation, not about technical requirements
 4. Avoid buzzwords completely (no "database," "authentication," "REST APIs," "UI components," etc.)
 5. Never use lists or multiple-choice—keep it like a conversation between two people
-6. Subtly explore these 5 dimensions without them feeling like a checklist: Who uses this tool? What data matters most? How should it look and feel? What complex workflows run behind the scenes? Does this connect to other tools they use?
+6. Subtly explore these 6 dimensions without them feeling like a checklist: What problem/domain is this for? Who uses this tool? What data matters most? How should it look and feel? What complex workflows run behind the scenes? Does this connect to other tools they use?
 
 CRITICAL — DO NOT REPEAT:
 - NEVER ask about a topic that has already been discussed or answered.
 - Review the "Requirements gathered so far" section below. Any dimension marked as anything other than "Not yet discussed" has ALREADY been covered—move on to an uncovered dimension.
-- If all 5 dimensions have some information, ask a deeper follow-up about the LEAST clear one, or ask if there's anything else they'd like to add.
+- If all 6 dimensions have some information, ask a deeper follow-up about the LEAST clear one, or ask if there's anything else they'd like to add.
 - Each question must explore NEW ground. If the user has told you about their users, don't ask about users again. If they've described their data, don't ask about data again.
 
 Connection Strategy:
@@ -222,7 +233,7 @@ def build_llama_prompt(current_requirements: dict, history: list) -> str:
         )
     else:
         deficit_block = (
-            "\n\nAll 5 dimensions have some information gathered. "
+            "\n\nAll 6 dimensions have some information gathered. "
             "Ask if there's anything else they'd like to add, or a deeper follow-up on the least detailed dimension."
         )
 
@@ -248,7 +259,7 @@ def build_llama_prompt(current_requirements: dict, history: list) -> str:
     )
 
 # System prompt for HF Qwen 7B
-QWEN_BASE_PROMPT = """You are a seasoned technical analyzer. Review the FULL conversation history and extract ALL of the user's requirements into 5 dimensions.
+QWEN_BASE_PROMPT = """You are a seasoned technical analyzer. Review the FULL conversation history and extract ALL of the user's requirements into 6 dimensions.
 
 IMPORTANT RULES:
 1. You MUST preserve and build upon previously extracted requirements. Never lose information that was discussed earlier in the conversation.
@@ -258,6 +269,7 @@ IMPORTANT RULES:
 
 You MUST output ONLY valid JSON matching this exact structure:
 {
+    "problem_statement_or_domain": "string",
   "auth_and_users": "string",
   "data_and_storage": "string",
   "ui_complexity": "string",
@@ -293,6 +305,7 @@ class ChatRequest(BaseModel):
     user_message: str
 
 class RequirementsObject(BaseModel):
+    problem_statement_or_domain: str = Field(description="What core problem the app solves and in which domain/context it will be used.")
     auth_and_users: str = Field(description="Details regarding user accounts, roles, or authentication needs.")
     data_and_storage: str = Field(description="Details on what data needs to be stored and tracked.")
     ui_complexity: str = Field(description="Details on the user interface requirements and devices it will be used on.")
@@ -302,6 +315,7 @@ class RequirementsObject(BaseModel):
 class GeminiChatResponse(BaseModel):
     next_question: str = Field(description="The friendly, empathetic companion's single question acknowledging their context.")
     requirements_object: RequirementsObject
+    chat_summary: str = Field(description="A natural-language paragraph summarizing the user's app needs so far.")
     confidence_score: float = Field(description="Confidence value from 0.0 to 100.0.")
 
 class ChatResponseOuter(GeminiChatResponse):
@@ -422,6 +436,7 @@ def _build_asset_context(assets: dict[str, str]) -> str:
 CODE_PROMPT_WITH_TEMPLATE = """You are an expert Frontend Developer. You are given an SB Admin 2 (Bootstrap 4) dashboard TEMPLATE. Your job is to ADAPT this template into a new, fully working app that matches the requirements below.
 
 ## REQUIREMENTS:
+Problem/Domain: {problem_statement_or_domain}
 Authentication/Users: {auth_and_users}
 Data/Storage: {data_and_storage}
 UI Complexity: {ui_complexity}
@@ -467,6 +482,7 @@ Do not include any explanations outside of the code blocks. Give me only the cod
 # Fallback: used when NO template assets are found
 CODE_PROMPT_NO_TEMPLATE = """You are an expert Frontend Developer. Your task is to generate a fully functioning web application based on the following requirements:
 
+Problem/Domain: {problem_statement_or_domain}
 Authentication/Users: {auth_and_users}
 Data/Storage: {data_and_storage}
 UI Complexity: {ui_complexity}
@@ -510,6 +526,25 @@ def extract_code_blocks(markdown_text: str) -> tuple[str, str, str, str]:
 
     return html_content, css_content, js_content, py_content
 
+
+def _build_chat_summary(requirements: dict) -> str:
+    """Create a frontend-friendly paragraph summary from extracted requirements."""
+    problem = requirements.get("problem_statement_or_domain", "Not yet discussed")
+    users = requirements.get("auth_and_users", "Not yet discussed")
+    data = requirements.get("data_and_storage", "Not yet discussed")
+    ui = requirements.get("ui_complexity", "Not yet discussed")
+    logic = requirements.get("business_logic", "Not yet discussed")
+    integrations = requirements.get("integrations", "Not yet discussed")
+
+    def clean(v: str) -> str:
+        return "still being refined" if not _is_filled(v) else v
+
+    return (
+        f"This app is for {clean(problem)}. It is intended for {clean(users)}. "
+        f"It should manage {clean(data)} with an interface focused on {clean(ui)}. "
+        f"Core behavior includes {clean(logic)}, and integrations are {clean(integrations)}."
+    )
+
 def get_genai_response(conversation_history: list, current_requirements: dict) -> str:
     """Takes the history and accumulated requirements, returns a JSON response string."""
     if not groq_client:
@@ -548,7 +583,7 @@ def get_genai_response(conversation_history: list, current_requirements: dict) -
 
     # Merge: keep previous value if Qwen returned empty / "Not yet discussed" for a field
     merged_requirements = {}
-    for key in ["auth_and_users", "data_and_storage", "ui_complexity", "business_logic", "integrations"]:
+    for key in ["problem_statement_or_domain", "auth_and_users", "data_and_storage", "ui_complexity", "business_logic", "integrations"]:
         new_val = req_data.get(key, "Not yet discussed")
         old_val = current_requirements.get(key, "Not yet discussed")
         # Normalize empties
@@ -572,6 +607,10 @@ def get_genai_response(conversation_history: list, current_requirements: dict) -
             break
 
     if last_user_text:
+        if not _is_filled(merged_requirements.get("problem_statement_or_domain")):
+            if any(x in last_user_text for x in ["tracker", "track", "manage", "system", "app", "for "]):
+                merged_requirements["problem_statement_or_domain"] = f"User needs an app for: {last_user_text}"
+
         if (not _is_filled(merged_requirements.get("auth_and_users")) and
             any(x in last_user_text for x in ["just me", "jst me", "only me", "solo", "myself"])):
             merged_requirements["auth_and_users"] = "Single user, no authentication needed"
@@ -588,8 +627,12 @@ def get_genai_response(conversation_history: list, current_requirements: dict) -
     # with sensible defaults from the template (user can refine later)
     template = _find_matching_template(merged_requirements, conversation_history)
     if template:
-        for key in ["auth_and_users", "data_and_storage", "ui_complexity", "business_logic", "integrations"]:
-            if merged_requirements[key] == "Not yet discussed" and template.get(key):
+        for key in ["problem_statement_or_domain", "auth_and_users", "data_and_storage", "ui_complexity", "business_logic", "integrations"]:
+            if merged_requirements[key] != "Not yet discussed":
+                continue
+            if key == "problem_statement_or_domain":
+                merged_requirements[key] = f"A {template.get('name', 'software')} application (default — refine if needed)"
+            elif template.get(key):
                 merged_requirements[key] = template[key] + " (default — refine if needed)"
 
     # Build next question using the UPDATED requirements.
@@ -602,7 +645,7 @@ def get_genai_response(conversation_history: list, current_requirements: dict) -
     # Detect low-signal reply with no requirements progress and ask for clarification.
     progressed = any(
         merged_requirements.get(k, "Not yet discussed") != current_requirements.get(k, "Not yet discussed")
-        for k in ["auth_and_users", "data_and_storage", "ui_complexity", "business_logic", "integrations"]
+        for k in ["problem_statement_or_domain", "auth_and_users", "data_and_storage", "ui_complexity", "business_logic", "integrations"]
     )
     token_count = len([t for t in re.split(r"\s+", last_user_text) if t]) if last_user_text else 0
     if last_user_text and (not progressed) and token_count <= 3:
@@ -635,12 +678,13 @@ def get_genai_response(conversation_history: list, current_requirements: dict) -
     filled = sum(1 for v in merged_requirements.values() if _is_filled(v))
     raw_confidence = float(req_data.get("confidence_score", 0.0))
     # Confidence = max(model's score, coverage-based minimum)
-    min_confidence = filled * 20.0  # 5 filled = 100
+    min_confidence = (filled / 6.0) * 100.0
     confidence = max(raw_confidence, min_confidence)
 
     final_output = {
         "next_question": next_question,
         "requirements_object": merged_requirements,
+        "chat_summary": _build_chat_summary(merged_requirements),
         "confidence_score": min(confidence, 100.0)
     }
     
@@ -707,13 +751,15 @@ async def get_session(session_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Session not found")
     history = json.loads(db_session.conversation_history)
     requirements = json.loads(db_session.requirements_json)
+    requirements = _normalize_requirements(requirements)
     # Compute confidence from requirements
     filled = sum(1 for v in requirements.values() if _is_filled(v))
-    confidence = min(filled * 20.0, 100.0)
+    confidence = min((filled / 6.0) * 100.0, 100.0)
     return {
         "session_id": db_session.id,
         "history": history,
         "requirements_object": requirements,
+        "chat_summary": _build_chat_summary(requirements),
         "confidence_score": confidence
     }
 
@@ -749,6 +795,7 @@ async def generate_app(request: GenerateRequest, db: Session = Depends(get_db)):
     # Pick prompt based on whether template assets exist
     if template_context:
         prompt = CODE_PROMPT_WITH_TEMPLATE.format(
+            problem_statement_or_domain=reqs.problem_statement_or_domain,
             auth_and_users=reqs.auth_and_users,
             data_and_storage=reqs.data_and_storage,
             ui_complexity=reqs.ui_complexity,
@@ -758,6 +805,7 @@ async def generate_app(request: GenerateRequest, db: Session = Depends(get_db)):
         )
     else:
         prompt = CODE_PROMPT_NO_TEMPLATE.format(
+            problem_statement_or_domain=reqs.problem_statement_or_domain,
             auth_and_users=reqs.auth_and_users,
             data_and_storage=reqs.data_and_storage,
             ui_complexity=reqs.ui_complexity,

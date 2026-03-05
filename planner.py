@@ -20,19 +20,28 @@ load_dotenv()
 PLANNER_SYSTEM_PROMPT = """You are an expert software architect. Given a user's application description, produce an architecture plan as a JSON object.
 
 RULES:
-1. Use ONLY this tech stack: Python (FastAPI) for backend, plain HTML/CSS/JS for frontend, SQLite for database.
+1. Use ONLY this tech stack: Python (FastAPI) for backend, SB Admin 2 (Bootstrap 4) template for frontend, SQLite for database.
 2. Keep the design lightweight but clean — separate concerns properly.
 3. Backend must have: main entry point, models, routes separated by domain, and a database module.
-4. Frontend must have: an index.html, a styles.css, and JS files organized by feature.
+4. Frontend is built on the SB Admin 2 dashboard template (Bootstrap 4, sidebar navigation, topbar, card-based content areas). Frontend files should adapt this template — NOT start from scratch.
 5. Include a requirements.txt for Python dependencies.
 6. Every file must have a clear single responsibility.
+
+IMPORTANT — FRONTEND TEMPLATE:
+The project includes an SB Admin 2 Bootstrap 4 template with:
+- Sidebar navigation (gradient primary), topbar, card-based content
+- Vendor libraries: Bootstrap, jQuery, FontAwesome, Chart.js, DataTables (already available in vendor/ folder)
+- CSS: css/sb-admin-2.css (plus custom styles)
+- JS: js/sb-admin-2.js (plus custom app logic)
+Frontend files should ADAPT this template structure. Use vendor CDN paths like vendor/jquery/jquery.min.js, vendor/bootstrap/js/bootstrap.bundle.min.js, etc.
+All data persistence on the frontend should use localStorage.
 
 You MUST output ONLY valid JSON matching this EXACT structure (no markdown, no explanation):
 {
   "project_name": "snake_case_name",
   "description": "Brief description of the app",
   "backend": "FastAPI",
-  "frontend": "HTML/CSS/JS",
+  "frontend": "SB Admin 2 (Bootstrap 4)",
   "database": "SQLite",
   "files": [
     {
@@ -48,10 +57,11 @@ You MUST output ONLY valid JSON matching this EXACT structure (no markdown, no e
 
 GUIDELINES for file planning:
 - backend/ folder: main.py, database.py, models.py (or split by domain), routes/ folder with domain-separated route files
-- frontend/ folder: index.html, styles.css, js/ folder with feature-separated JS files (e.g. app.js, api.js, components.js)
+- frontend/ folder: index.html (main dashboard adapting SB Admin 2 layout), custom.css (app-specific styles on top of sb-admin-2.css), js/ folder with feature-separated JS files (e.g. app.js, api.js, components.js)
 - Root: requirements.txt
 - Keep file count reasonable (5-15 files typically). Don't over-engineer.
 - Each file description must clearly state what that file does — this will be used as the generation prompt.
+- For HTML file descriptions, mention that they should use the SB Admin 2 sidebar+topbar+card layout.
 
 Output ONLY the JSON object.
 """
@@ -159,7 +169,7 @@ def _generate_plan_sync(prompt: str, provider: str) -> dict:
 
     # Ensure defaults
     plan.setdefault("backend", "FastAPI")
-    plan.setdefault("frontend", "HTML/CSS/JS")
+    plan.setdefault("frontend", "SB Admin 2 (Bootstrap 4)")
     plan.setdefault("database", "SQLite")
     plan.setdefault("description", prompt[:200])
 

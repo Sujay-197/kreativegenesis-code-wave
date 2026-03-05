@@ -1,0 +1,641 @@
+import uuid
+import os
+import json
+import asyncio
+import zipfile
+import io
+import requests
+import re
+from typing import Dict, Any, Optional
+from fastapi import FastAPI, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
+import groq
+from dotenv import load_dotenv
+from huggingface_hub import InferenceClient
+from sqlalchemy.orm import Session
+from database import SessionLocal, GeneratedApp
+
+load_dotenv()
+
+app = FastAPI(title="AppForge AI Backend — Unified")
+
+# CORS Setup
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CONFIGURATION & INITIALIZATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# In-memory sessions for both modes
+sessions: Dict[str, Dict[str, Any]] = {}
+
+# API Keys
+groq_api_key = os.getenv("GROQ_API_KEY")
+hf_token = os.getenv("HUGGINGFACE_API_KEY") or os.getenv("HF_API_KEY")
+
+groq_client = groq.Groq(api_key=groq_api_key) if groq_api_key else None
+hf_client = InferenceClient(api_key=hf_token) if hf_token else None
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PYDANTIC MODELS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class ChatRequest(BaseModel):
+    session_id: Optional[str] = None
+    user_message: Optional[str] = None  # For Simple Mode
+    message: Optional[str] = None  # For Tailored Mode
+
+
+class RequirementsObject(BaseModel):
+    auth_and_users: str = Field(description="Details regarding user accounts, roles, or authentication needs.")
+    data_and_storage: str = Field(description="Details on what data needs to be stored and tracked.")
+    ui_complexity: str = Field(description="Details on the user interface requirements and devices it will be used on.")
+    business_logic: str = Field(description="Specific workflows, calculations, or logic needed.")
+    integrations: str = Field(description="Any needed connections to outside services (e.g., email, payments).")
+
+
+class GeminiChatResponse(BaseModel):
+    next_question: str = Field(description="The friendly, empathetic companion's single question acknowledging their context.")
+    requirements_object: RequirementsObject
+    confidence_score: float = Field(description="Confidence value from 0.0 to 100.0.")
+
+
+class ChatResponseOuter(GeminiChatResponse):
+    session_id: str
+
+
+class GenerateRequest(BaseModel):
+    session_id: str
+    requirements_object: Optional[RequirementsObject] = None
+
+
+class GenerateResponse(BaseModel):
+    app_id: Optional[str] = None
+    message: str = "App generation started successfully."
+    code: Optional[Dict[str, str]] = None
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SYSTEM PROMPTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+SIMPLE_MODE_LLAMA_PROMPT = """You are AppForge AI's Simple Mode Companion—a warm, insightful guide who genuinely understands the challenges small business owners, NGOs, educators, and independent operators face daily.
+
+Your core mission: Help them visualize and build the perfect software solution by drawing out what they truly need, making them feel heard, and helping them see how this tool will make their life easier.
+
+Tone & Approach:
+- Be genuinely warm and conversational—like talking to a trusted mentor, not a form-filling bot
+- Show that you truly understand their world and the specific challenges they mentioned
+- Validate their struggles before asking the next question (e.g., "It sounds like managing orders is eating up your time...")
+- Use their own language and context naturally throughout
+- Help them see the bigger picture: how solving this problem will free up time, reduce stress, or unlock growth
+- Make them feel like a smart decision-maker for thinking through these details
+
+Question Guidelines:
+1. Always reference something specific they said—builds trust and shows you're listening
+2. Ask ONLY ONE exploratory question at a time; let it feel natural and inevitable
+3. Lead with curiosity about their situation, not about technical requirements
+4. Avoid buzzwords completely (no "database," "authentication," "REST APIs," "UI components," etc.)
+5. Never use lists or multiple-choice—keep it like a conversation between two people
+6. Subtly explore these 5 dimensions without them feeling like a checklist: Who uses this tool? What data matters most? How should it look and feel? What complex workflows run behind the scenes? Does this connect to other tools they use?
+
+Connection Strategy:
+- Reference their specific context (bakery → orders/inventory, school → student records, etc.)
+- Acknowledge time/stress: "So you're juggling this manually right now..."
+- Paint a picture: "Imagine being able to..."
+- Show empathy for their constraints (budget, time, technical comfort)
+
+Output ONLY your conversational response (the next question). Do not output JSON.
+"""
+
+TAILORED_MODE_COMPANION_PROMPT = """You are AppForge AI's Tailored Mode Companion—a warm, insightful guide who genuinely understands the challenges small business owners, NGOs, educators, and independent operators face daily.
+
+Your core mission: Help them visualize and build the perfect software solution by drawing out what they truly need, making them feel heard, and helping them see how this tool will make their life easier.
+
+Tone & Approach:
+- Be genuinely warm and conversational—like talking to a trusted mentor, not a form-filling bot
+- Show that you truly understand their world and the specific challenges they mentioned
+- Validate their struggles before asking the next question (e.g., "It sounds like managing orders is eating up your time...")
+- Use their own language and context naturally throughout
+- Help them see the bigger picture: how solving this problem will free up time, reduce stress, or unlock growth
+- Make them feel like a smart decision-maker for thinking through these details
+
+Question Guidelines:
+1. Always reference something specific they said—builds trust and shows you're listening
+2. Ask ONLY ONE exploratory question at a time; let it feel natural and inevitable
+3. Lead with curiosity about their situation, not about technical requirements
+4. Avoid buzzwords completely (no "database," "authentication," "REST APIs," "UI components," etc.)
+5. Never use lists or multiple-choice—keep it like a conversation between two people
+6. Subtly explore these 5 dimensions without them feeling like a checklist: Who uses this tool? What data matters most? How should it look and feel? What complex workflows run behind the scenes? Does this connect to other tools they use?
+
+Connection Strategy:
+- Reference their specific context (bakery → orders/inventory, school → student records, etc.)
+- Acknowledge time/stress: "So you're juggling this manually right now..."
+- Paint a picture: "Imagine being able to..."
+- Show empathy for their constraints (budget, time, technical comfort)
+
+Output ONLY your conversational response (the next question). Do not output JSON.
+"""
+
+REQUIREMENTS_EXTRACTION_PROMPT = """You are a seasoned technical analyzer. Review the conversation history and extract the user's requirements into 5 dimensions.
+You MUST output ONLY valid JSON matching this exact structure:
+{
+  "auth_and_users": "string",
+  "data_and_storage": "string",
+  "ui_complexity": "string",
+  "business_logic": "string",
+  "integrations": "string",
+  "confidence_score": float (0.0 to 100.0)
+}
+Specific details only. If unknown, write "Not yet discussed".
+Output ONLY the JSON object, with no markdown formatting.
+"""
+
+CODE_GENERATION_PROMPT = """You are an expert Frontend Developer. Your task is to generate a fully functioning web application based on the following requirements:
+
+Authentication/Users: {auth_and_users}
+Data/Storage: {data_and_storage}
+UI Complexity: {ui_complexity}
+Business Logic: {business_logic}
+Integrations: {integrations}
+
+Generate the code using HTML, CSS (Tailwind via CDN is okay), and plain JavaScript. 
+IMPORTANT: Your output MUST contain exactly three code blocks formatted as follows:
+
+```html
+<!-- HTML code here -->
+```
+```css
+/* CSS code here */
+```
+```javascript
+// JS code here
+```
+
+Do not include any explanations outside of the code blocks. Give me only the code.
+"""
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DATABASE DEPENDENCY
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# UTILITY FUNCTIONS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def extract_code_blocks(markdown_text: str) -> tuple[str, str, str]:
+    """Extract HTML, CSS, and JS blocks from markdown."""
+    html_match = re.search(r'```html\n(.*?)\n```', markdown_text, re.DOTALL | re.IGNORECASE)
+    css_match = re.search(r'```css\n(.*?)\n```', markdown_text, re.DOTALL | re.IGNORECASE)
+    js_match = re.search(r'```javascript\n(.*?)\n```', markdown_text, re.DOTALL | re.IGNORECASE)
+    
+    if not js_match:
+        js_match = re.search(r'```js\n(.*?)\n```', markdown_text, re.DOTALL | re.IGNORECASE)
+
+    html_content = html_match.group(1) if html_match else "<!-- HTML Generation Failed -->"
+    css_content = css_match.group(1) if css_match else "/* CSS Generation Failed */"
+    js_content = js_match.group(1) if js_match else "// JS Generation Failed"
+
+    return html_content, css_content, js_content
+
+
+def get_or_create_session(session_id: Optional[str] = None, mode: str = "simple") -> str:
+    """Get or create a session for the given mode."""
+    if not session_id or session_id not in sessions:
+        session_id = str(uuid.uuid4())
+        sessions[session_id] = {
+            "mode": mode,
+            "history": [],
+            "technical_spec": {
+                "auth_and_users": "Not yet discussed",
+                "data_and_storage": "Not yet discussed",
+                "ui_complexity": "Not yet discussed",
+                "business_logic": "Not yet discussed",
+                "integrations": "Not yet discussed",
+            },
+            "code": None,
+        }
+    return session_id
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SIMPLE MODE FUNCTIONS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def get_simple_mode_response(conversation_history: list) -> str:
+    """Simple Mode: Uses Groq Llama for questions and HF Qwen for requirements extraction."""
+    if not groq_client:
+        raise Exception("GROQ_API_KEY not configured")
+    if not hf_client:
+        raise Exception("HUGGINGFACE_API_KEY not configured")
+        
+    # 1. Fetch next question using Groq (Llama 3 8B)
+    messages = [{"role": "system", "content": SIMPLE_MODE_LLAMA_PROMPT}]
+    for msg in conversation_history:
+        role = "assistant" if msg["role"] == "model" else "user"
+        messages.append({"role": role, "content": msg["parts"][0]})
+        
+    llama_response = groq_client.chat.completions.create(
+        model="llama3-8b-8192",
+        messages=messages,  # type: ignore[arg-type]
+        temperature=0.7,
+        max_tokens=200
+    )
+    llama_content = llama_response.choices[0].message.content
+    next_question = llama_content.strip() if llama_content else ""
+
+    # 2. Extract requirements using HF Qwen 7B
+    extraction_messages = [{"role": "system", "content": REQUIREMENTS_EXTRACTION_PROMPT}]
+    extraction_messages.extend(messages[1:])
+    extraction_messages.append({"role": "assistant", "content": next_question})
+    
+    qwen_response = hf_client.chat_completion(
+        model="Qwen/Qwen2.5-7B-Instruct",
+        messages=extraction_messages,  # type: ignore[arg-type]
+        temperature=0.1,
+        max_tokens=600
+    )
+    qwen_content = qwen_response.choices[0].message.content
+    requirements_json_str = qwen_content.strip() if qwen_content else ""
+    
+    # Try to clean up output
+    json_match = re.search(r'\{.*\}', requirements_json_str, re.DOTALL)
+    if json_match:
+        requirements_json_str = json_match.group(0)
+        
+    try:
+        req_data = json.loads(requirements_json_str)
+    except Exception:
+        req_data = {}
+        
+    # Construct final output
+    final_output = {
+        "next_question": next_question,
+        "requirements_object": {
+            "auth_and_users": req_data.get("auth_and_users", "Not yet discussed"),
+            "data_and_storage": req_data.get("data_and_storage", "Not yet discussed"),
+            "ui_complexity": req_data.get("ui_complexity", "Not yet discussed"),
+            "business_logic": req_data.get("business_logic", "Not yet discussed"),
+            "integrations": req_data.get("integrations", "Not yet discussed")
+        },
+        "confidence_score": float(req_data.get("confidence_score", 0.0))
+    }
+    
+    return json.dumps(final_output)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TAILORED MODE FUNCTIONS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _hf_token_check() -> str:
+    """Return the HF API token."""
+    if not hf_token:
+        raise ValueError("No Hugging Face API key configured. Set HUGGINGFACE_API_KEY in your .env file.")
+    return hf_token
+
+
+def call_tailored_companion(history: list, current_message: str) -> str:
+    """Tailored Mode: Get conversational question via HF Inference API."""
+    try:
+        API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.3"
+        headers = {"Authorization": f"Bearer {_hf_token_check()}"}
+
+        conversation = "\n".join(
+            f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}"
+            for m in history[:-1]
+        )
+
+        prompt = (
+            f"[INST] {TAILORED_MODE_COMPANION_PROMPT}\n\n"
+            f"Conversation so far:\n{conversation}\n\n"
+            f"Latest user message: {current_message} [/INST]"
+        )
+
+        response = requests.post(
+            API_URL,
+            headers=headers,
+            json={"inputs": prompt, "parameters": {"max_new_tokens": 300, "temperature": 0.7}},
+            timeout=60,
+        )
+        response.raise_for_status()
+        result = response.json()
+        generated = result[0]["generated_text"]
+        if "[/INST]" in generated:
+            generated = generated.split("[/INST]")[-1].strip()
+        return generated
+    except Exception as e:
+        print(f"Tailored Companion Error: {e}")
+        return "I'd love to understand more — could you tell me a bit about who will be using this app and what they need to do in it?"
+
+
+def call_tailored_analyzer(history: list) -> dict:
+    """Tailored Mode: Extract requirements via HF Inference API."""
+    try:
+        API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.3"
+        headers = {"Authorization": f"Bearer {_hf_token_check()}"}
+
+        conversation = "\n".join(
+            f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}"
+            for m in history
+        )
+
+        prompt = (
+            f"[INST] {REQUIREMENTS_EXTRACTION_PROMPT}\n\n"
+            f"Full conversation:\n{conversation} [/INST]"
+        )
+
+        response = requests.post(
+            API_URL,
+            headers=headers,
+            json={"inputs": prompt, "parameters": {"max_new_tokens": 500, "temperature": 0.2}},
+            timeout=60,
+        )
+        response.raise_for_status()
+        result = response.json()
+        generated = result[0]["generated_text"]
+        if "[/INST]" in generated:
+            generated = generated.split("[/INST]")[-1].strip()
+        generated = generated.replace("```json", "").replace("```", "").strip()
+        return json.loads(generated)
+    except Exception as e:
+        print(f"Tailored Analyzer Error: {e}")
+        return {
+            "auth_and_users": "Not yet discussed",
+            "data_and_storage": "Not yet discussed",
+            "ui_complexity": "Not yet discussed",
+            "business_logic": "Not yet discussed",
+            "integrations": "Not yet discussed",
+            "confidence_score": 0.0,
+        }
+
+
+def generate_code_with_hf(technical_spec: dict) -> dict:
+    """Generate code using HF Inference API."""
+    try:
+        API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.3"
+        headers = {"Authorization": f"Bearer {_hf_token_check()}"}
+
+        prompt = (
+            "[INST] You are an expert web developer. Based on the following application specification, "
+            "generate the complete source code for a functional web application using HTML, CSS (Tailwind allowed), "
+            "and JavaScript. Provide the code in three clearly labelled blocks: HTML, CSS, and JS. "
+            "Use modern best practices. Output code only — no explanations.\n\n"
+            f"Specification:\n{json.dumps(technical_spec, indent=2)} [/INST]"
+        )
+
+        response = requests.post(
+            API_URL,
+            headers=headers,
+            json={"inputs": prompt, "parameters": {"max_new_tokens": 2000}},
+            timeout=120,
+        )
+        response.raise_for_status()
+        result = response.json()
+        generated_text = result[0]["generated_text"]
+
+        html, css, js = extract_code_blocks(generated_text)
+        return {"html": html, "css": css, "js": js}
+    except Exception as e:
+        print(f"Code Generation Error: {e}")
+        return {
+            "html": "<h1>App Generation Failed</h1><p>Please check backend console.</p>",
+            "css": "",
+            "js": "",
+        }
+
+
+def generate_code_with_groq(technical_spec: dict) -> dict:
+    """Generate code using Groq Mistral (alternative)."""
+    if not hf_client:
+        raise Exception("No HuggingFace client configured")
+        
+    prompt = CODE_GENERATION_PROMPT.format(
+        auth_and_users=technical_spec.get("auth_and_users", ""),
+        data_and_storage=technical_spec.get("data_and_storage", ""),
+        ui_complexity=technical_spec.get("ui_complexity", ""),
+        business_logic=technical_spec.get("business_logic", ""),
+        integrations=technical_spec.get("integrations", "")
+    )
+    
+    try:
+        response = hf_client.chat_completion(
+            model="mistralai/Mistral-7B-Instruct-v0.2",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=2048,
+            temperature=0.2
+        )
+        
+        generated_text = response.choices[0].message.content
+        if not generated_text:
+            raise Exception("No content received from model")
+        
+        html, css, js = extract_code_blocks(generated_text)
+        return {"html": html, "css": css, "js": js}
+    except Exception as e:
+        print(f"Groq Code Generation Error: {e}")
+        return {
+            "html": "<h1>App Generation Failed</h1><p>Please check backend console.</p>",
+            "css": "",
+            "js": "",
+        }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# API ROUTES — SIMPLE MODE
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/api/chat/simple", response_model=ChatResponseOuter)
+async def simple_mode_chat(request: ChatRequest):
+    """Simple Mode chat endpoint."""
+    session_id = get_or_create_session(request.session_id, "simple")
+    
+    history = sessions[session_id]["history"]
+    history.append({
+        "role": "user",
+        "parts": [request.user_message]
+    })
+    
+    try:
+        loop = asyncio.get_event_loop()
+        response_text = await asyncio.wait_for(
+            loop.run_in_executor(None, get_simple_mode_response, history),
+            timeout=30.0
+        )
+        
+        response_data = json.loads(response_text)
+        
+        history.append({
+            "role": "model",
+            "parts": [response_data.get("next_question", "")]
+        })
+        
+        response_data["session_id"] = session_id
+        return response_data
+    except asyncio.TimeoutError:
+        history.pop()
+        raise HTTPException(status_code=504, detail="AI response timed out. Please try again.")
+    except Exception as e:
+        err = str(e)
+        if "RESOURCE_EXHAUSTED" in err or "429" in err:
+            history.pop()
+            raise HTTPException(status_code=429, detail="Rate limit reached. Please wait a moment and try again.")
+        history.pop()
+        raise HTTPException(status_code=500, detail=err)
+
+
+@app.post("/api/generate", response_model=GenerateResponse)
+async def simple_mode_generate(request: GenerateRequest, db: Session = Depends(get_db)):
+    """Simple Mode: Generate app using Groq client."""
+    if not hf_client:
+        raise HTTPException(status_code=500, detail="Hugging Face API key is missing.")
+    
+    reqs = request.requirements_object
+    if not reqs:
+        raise HTTPException(status_code=400, detail="requirements_object is required")
+    
+    try:
+        code_data = generate_code_with_groq(reqs.dict())
+        
+        # Save to database
+        new_app = GeneratedApp(
+            session_id=request.session_id,
+            html_content=code_data.get("html", ""),
+            css_content=code_data.get("css", ""),
+            js_content=code_data.get("js", "")
+        )
+        db.add(new_app)
+        db.commit()
+        db.refresh(new_app)
+        
+        app_id: str = new_app.id if isinstance(new_app.id, str) else str(new_app.id)
+        return GenerateResponse(app_id=app_id)
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"App generation failed: {str(e)}")
+
+
+@app.get("/api/apps/{app_id}")
+async def simple_mode_get_app(app_id: str, db: Session = Depends(get_db)):
+    """Simple Mode: Retrieve generated app."""
+    app_record = db.query(GeneratedApp).filter(GeneratedApp.id == app_id).first()
+    if not app_record:
+        raise HTTPException(status_code=404, detail="App not found in database.")
+    
+    return {
+        "id": app_record.id,
+        "session_id": app_record.session_id,
+        "html": app_record.html_content,
+        "css": app_record.css_content,
+        "js": app_record.js_content,
+        "created_at": app_record.created_at
+    }
+
+
+@app.post("/api/chat/reset")
+async def simple_mode_reset(request: ChatRequest):
+    """Simple Mode: Reset session."""
+    if request.session_id in sessions:
+        del sessions[request.session_id]
+        return {"status": "session reset"}
+    return {"status": "session not found"}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# API ROUTES — TAILORED MODE
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/api/chat/tailored")
+async def tailored_mode_chat(request: ChatRequest):
+    """Tailored Mode chat endpoint."""
+    if not request.message:
+        raise HTTPException(status_code=400, detail="message is required for tailored mode")
+    
+    session_id = get_or_create_session(request.session_id, "tailored")
+    session = sessions[session_id]
+
+    session["history"].append({"role": "user", "content": request.message})
+
+    next_question = call_tailored_companion(session["history"], request.message)
+    analyzed = call_tailored_analyzer(session["history"])
+    confidence_score = analyzed.pop("confidence_score", 0.0)
+    session["technical_spec"].update(analyzed)
+
+    session["history"].append({"role": "assistant", "content": next_question})
+
+    return {
+        "session_id": session_id,
+        "next_question": next_question,
+        "technical_spec": session["technical_spec"],
+        "confidence_score": confidence_score,
+    }
+
+
+@app.post("/api/generate/tailored")
+async def tailored_mode_generate(request: GenerateRequest):
+    """Tailored Mode: Generate app using HF Inference API."""
+    if request.session_id not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    session = sessions[request.session_id]
+    generated_code = generate_code_with_hf(session["technical_spec"])
+    session["code"] = generated_code
+
+    return {
+        "message": "Tailored app generated successfully",
+        "code": generated_code
+    }
+
+
+@app.get("/api/download/{session_id}")
+async def download_app(session_id: str):
+    """Download generated app as ZIP."""
+    if session_id not in sessions or not sessions[session_id].get("code"):
+        raise HTTPException(status_code=404, detail="Session or generated code not found")
+
+    code_data = sessions[session_id]["code"]
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("index.html", code_data.get("html", ""))
+        zf.writestr("styles.css", code_data.get("css", ""))
+        zf.writestr("script.js", code_data.get("js", ""))
+    zip_buffer.seek(0)
+
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename=appforge_{session_id[:8]}.zip"},
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# HEALTH CHECK
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/health")
+async def health_check():
+    return {"status": "ok"}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="127.0.0.1", port=8000, reload=True)

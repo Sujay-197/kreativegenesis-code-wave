@@ -153,6 +153,12 @@ Question Guidelines:
 5. Never use lists or multiple-choice—keep it like a conversation between two people
 6. Subtly explore these 5 dimensions without them feeling like a checklist: Who uses this tool? What data matters most? How should it look and feel? What complex workflows run behind the scenes? Does this connect to other tools they use?
 
+CRITICAL — DO NOT REPEAT:
+- NEVER ask about a topic that has already been discussed or answered.
+- Review the "Requirements gathered so far" section below. Any dimension marked as anything other than "Not yet discussed" has ALREADY been covered—move on to an uncovered dimension.
+- If all 5 dimensions have some information, ask a deeper follow-up about the LEAST clear one, or ask if there's anything else they'd like to add.
+- Each question must explore NEW ground. If the user has told you about their users, don't ask about users again. If they've described their data, don't ask about data again.
+
 Connection Strategy:
 - Reference their specific context (bakery → orders/inventory, school → student records, etc.)
 - Acknowledge time/stress: "So you're juggling this manually right now..."
@@ -161,6 +167,17 @@ Connection Strategy:
 
 Output ONLY your conversational response (the next question). Do not output JSON.
 """
+
+def build_simple_llama_prompt(current_requirements: dict) -> str:
+    """Build the full Llama system prompt with current requirements context."""
+    req_summary = "\n".join(
+        f"  - {dim}: {val}" for dim, val in current_requirements.items()
+    )
+    return (
+        SIMPLE_MODE_LLAMA_PROMPT
+        + f"\n\nRequirements gathered so far:\n{req_summary}\n\n"
+        + "Focus your next question on a dimension that is still 'Not yet discussed' or needs more detail."
+    )
 
 TAILORED_MODE_COMPANION_PROMPT = """You are AppForge AI's Tailored Mode Companion—a warm, insightful guide who genuinely understands the challenges small business owners, NGOs, educators, and independent operators face daily.
 
@@ -182,6 +199,12 @@ Question Guidelines:
 5. Never use lists or multiple-choice—keep it like a conversation between two people
 6. Subtly explore these 5 dimensions without them feeling like a checklist: Who uses this tool? What data matters most? How should it look and feel? What complex workflows run behind the scenes? Does this connect to other tools they use?
 
+CRITICAL — DO NOT REPEAT:
+- NEVER ask about a topic that has already been discussed or answered.
+- Review the "Requirements gathered so far" section below. Any dimension marked as anything other than "Not yet discussed" has ALREADY been covered—move on to an uncovered dimension.
+- If all 5 dimensions have some information, ask a deeper follow-up about the LEAST clear one, or ask if there's anything else they'd like to add.
+- Each question must explore NEW ground.
+
 Connection Strategy:
 - Reference their specific context (bakery → orders/inventory, school → student records, etc.)
 - Acknowledge time/stress: "So you're juggling this manually right now..."
@@ -191,7 +214,26 @@ Connection Strategy:
 Output ONLY your conversational response (the next question). Do not output JSON.
 """
 
-REQUIREMENTS_EXTRACTION_PROMPT = """You are a seasoned technical analyzer. Review the conversation history and extract the user's requirements into 5 dimensions.
+def build_tailored_llama_prompt(current_spec: dict) -> str:
+    """Build the full Tailored Mode prompt with current spec context."""
+    req_summary = "\n".join(
+        f"  - {dim}: {val}" for dim, val in current_spec.items()
+        if dim != "confidence_score"
+    )
+    return (
+        TAILORED_MODE_COMPANION_PROMPT
+        + f"\n\nRequirements gathered so far:\n{req_summary}\n\n"
+        + "Focus your next question on a dimension that is still 'Not yet discussed' or needs more detail."
+    )
+
+REQUIREMENTS_EXTRACTION_PROMPT = """You are a seasoned technical analyzer. Review the FULL conversation history and extract ALL of the user's requirements into 5 dimensions.
+
+IMPORTANT RULES:
+1. You MUST preserve and build upon previously extracted requirements. Never lose information that was discussed earlier in the conversation.
+2. If a dimension was discussed earlier, keep that information AND add any new details from the latest messages.
+3. Only write "Not yet discussed" if the topic has genuinely NEVER been mentioned in the entire conversation.
+4. The confidence_score should reflect how complete the overall picture is (0-100). Increase it as more dimensions get filled in. If 4+ dimensions have real info, score should be at least 70.
+
 You MUST output ONLY valid JSON matching this exact structure:
 {
   "auth_and_users": "string",
@@ -201,9 +243,18 @@ You MUST output ONLY valid JSON matching this exact structure:
   "integrations": "string",
   "confidence_score": float (0.0 to 100.0)
 }
-Specific details only. If unknown, write "Not yet discussed".
-Output ONLY the JSON object, with no markdown formatting.
+Output ONLY the JSON object, with no markdown formatting, no code fences, no explanation.
 """
+
+def build_extraction_prompt(previous_requirements: dict) -> str:
+    """Build extraction prompt with previous requirements for accumulation."""
+    if all(v == "Not yet discussed" for k, v in previous_requirements.items() if k != "confidence_score"):
+        return REQUIREMENTS_EXTRACTION_PROMPT
+    req_json = json.dumps({k: v for k, v in previous_requirements.items() if k != "confidence_score"}, indent=2)
+    return (
+        REQUIREMENTS_EXTRACTION_PROMPT
+        + f"\nPreviously extracted requirements (update and expand these, do NOT lose any info):\n{req_json}\n"
+    )
 
 CODE_GENERATION_PROMPT = """You are an expert Frontend Developer. Your task is to generate a fully functioning web application based on the following requirements:
 
@@ -285,15 +336,16 @@ def get_or_create_session(session_id: Optional[str] = None, mode: str = "simple"
 # SIMPLE MODE FUNCTIONS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def get_simple_mode_response(conversation_history: list) -> str:
+def get_simple_mode_response(conversation_history: list, current_requirements: dict) -> str:
     """Simple Mode: Uses Groq Llama for questions and HF Qwen for requirements extraction."""
     if not groq_client:
         raise Exception("GROQ_API_KEY not configured")
     if not hf_client:
         raise Exception("HUGGINGFACE_API_KEY not configured")
         
-    # 1. Fetch next question using Groq (Llama 3 8B)
-    messages = [{"role": "system", "content": SIMPLE_MODE_LLAMA_PROMPT}]
+    # 1. Fetch next question using Groq (Llama 3 8B) — with requirements context
+    llama_prompt = build_simple_llama_prompt(current_requirements)
+    messages = [{"role": "system", "content": llama_prompt}]
     for msg in conversation_history:
         role = "assistant" if msg["role"] == "model" else "user"
         messages.append({"role": role, "content": msg["parts"][0]})
@@ -302,14 +354,17 @@ def get_simple_mode_response(conversation_history: list) -> str:
         model="llama3-8b-8192",
         messages=messages,  # type: ignore[arg-type]
         temperature=0.7,
-        max_tokens=200
+        max_tokens=250
     )
     llama_content = llama_response.choices[0].message.content
     next_question = llama_content.strip() if llama_content else ""
 
-    # 2. Extract requirements using HF Qwen 7B
-    extraction_messages = [{"role": "system", "content": REQUIREMENTS_EXTRACTION_PROMPT}]
-    extraction_messages.extend(messages[1:])
+    # 2. Extract requirements using HF Qwen 7B — with previous requirements for accumulation
+    extraction_prompt = build_extraction_prompt(current_requirements)
+    extraction_messages = [{"role": "system", "content": extraction_prompt}]
+    for msg in conversation_history:
+        role = "assistant" if msg["role"] == "model" else "user"
+        extraction_messages.append({"role": role, "content": msg["parts"][0]})
     extraction_messages.append({"role": "assistant", "content": next_question})
     
     qwen_response = hf_client.chat_completion(
@@ -330,18 +385,27 @@ def get_simple_mode_response(conversation_history: list) -> str:
         req_data = json.loads(requirements_json_str)
     except Exception:
         req_data = {}
+
+    # Merge: keep previous value if Qwen returned empty / "Not yet discussed" for a field
+    merged_requirements = {}
+    for key in ["auth_and_users", "data_and_storage", "ui_complexity", "business_logic", "integrations"]:
+        new_val = req_data.get(key, "Not yet discussed")
+        old_val = current_requirements.get(key, "Not yet discussed")
+        if (not new_val or new_val == "Not yet discussed") and old_val and old_val != "Not yet discussed":
+            merged_requirements[key] = old_val
+        else:
+            merged_requirements[key] = new_val if new_val else "Not yet discussed"
+
+    # Calculate confidence: count how many dimensions have real info
+    filled = sum(1 for v in merged_requirements.values() if v and v != "Not yet discussed")
+    raw_confidence = float(req_data.get("confidence_score", 0.0))
+    min_confidence = filled * 16.0  # 5 filled = at least 80
+    confidence = max(raw_confidence, min_confidence)
         
-    # Construct final output
     final_output = {
         "next_question": next_question,
-        "requirements_object": {
-            "auth_and_users": req_data.get("auth_and_users", "Not yet discussed"),
-            "data_and_storage": req_data.get("data_and_storage", "Not yet discussed"),
-            "ui_complexity": req_data.get("ui_complexity", "Not yet discussed"),
-            "business_logic": req_data.get("business_logic", "Not yet discussed"),
-            "integrations": req_data.get("integrations", "Not yet discussed")
-        },
-        "confidence_score": float(req_data.get("confidence_score", 0.0))
+        "requirements_object": merged_requirements,
+        "confidence_score": min(confidence, 100.0)
     }
     
     return json.dumps(final_output)
@@ -393,7 +457,7 @@ def call_tailored_companion(history: list, current_message: str) -> str:
         return "I'd love to understand more — could you tell me a bit about who will be using this app and what they need to do in it?"
 
 
-def call_tailored_analyzer(history: list) -> dict:
+def call_tailored_analyzer(history: list, current_spec: dict) -> dict:
     """Tailored Mode: Extract requirements via HF Inference API."""
     try:
         API_URL = "https://api-inference.huggingface.co/models/Qwen/Qwen2.5-7B-Instruct"
@@ -404,8 +468,10 @@ def call_tailored_analyzer(history: list) -> dict:
             for m in history
         )
 
+        extraction_prompt = build_extraction_prompt(current_spec)
+
         prompt = (
-            f"[INST] {REQUIREMENTS_EXTRACTION_PROMPT}\n\n"
+            f"[INST] {extraction_prompt}\n\n"
             f"Full conversation:\n{conversation} [/INST]"
         )
 
@@ -519,6 +585,13 @@ async def simple_mode_chat(request: ChatRequest):
     session_id = get_or_create_session(request.session_id, "simple")
     
     history = sessions[session_id]["history"]
+    current_requirements = sessions[session_id].get("technical_spec", {
+        "auth_and_users": "Not yet discussed",
+        "data_and_storage": "Not yet discussed",
+        "ui_complexity": "Not yet discussed",
+        "business_logic": "Not yet discussed",
+        "integrations": "Not yet discussed",
+    })
     history.append({
         "role": "user",
         "parts": [request.user_message]
@@ -527,7 +600,7 @@ async def simple_mode_chat(request: ChatRequest):
     try:
         loop = asyncio.get_event_loop()
         response_text = await asyncio.wait_for(
-            loop.run_in_executor(None, get_simple_mode_response, history),
+            loop.run_in_executor(None, get_simple_mode_response, history, current_requirements),
             timeout=30.0
         )
         
@@ -537,6 +610,10 @@ async def simple_mode_chat(request: ChatRequest):
             "role": "model",
             "parts": [response_data.get("next_question", "")]
         })
+        
+        # Persist accumulated requirements in session
+        if response_data.get("requirements_object"):
+            sessions[session_id]["technical_spec"] = response_data["requirements_object"]
         
         response_data["session_id"] = session_id
         return response_data
@@ -624,9 +701,17 @@ async def tailored_mode_chat(request: ChatRequest):
 
     session["history"].append({"role": "user", "content": request.message})
 
-    next_question = call_tailored_companion(session["history"], request.message)
-    analyzed = call_tailored_analyzer(session["history"])
+    next_question = call_tailored_companion(session["history"], request.message, session["technical_spec"])
+    analyzed = call_tailored_analyzer(session["history"], session["technical_spec"])
     confidence_score = analyzed.pop("confidence_score", 0.0)
+
+    # Merge: preserve previously gathered info
+    for key in ["auth_and_users", "data_and_storage", "ui_complexity", "business_logic", "integrations"]:
+        new_val = analyzed.get(key, "Not yet discussed")
+        old_val = session["technical_spec"].get(key, "Not yet discussed")
+        if (not new_val or new_val == "Not yet discussed") and old_val and old_val != "Not yet discussed":
+            analyzed[key] = old_val
+
     session["technical_spec"].update(analyzed)
 
     session["history"].append({"role": "assistant", "content": next_question})

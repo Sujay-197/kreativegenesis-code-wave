@@ -167,12 +167,13 @@ export default function Builder() {
           // Map backend requirements_object into our local RequirementsState
           if (data.requirements_object) {
             const ro = data.requirements_object;
+            const isFilled = (v?: string | null) => !!v && v.toLowerCase() !== 'not yet discussed';
             updatedRequirements = {
-              auth: { label: 'Auth & Users', value: ro.auth_and_users || null, confidence: ro.auth_and_users ? 75 : 0 },
-              data: { label: 'Data & Storage', value: ro.data_and_storage || null, confidence: ro.data_and_storage ? 75 : 0 },
-              ui: { label: 'UI Complexity', value: ro.ui_complexity || null, confidence: ro.ui_complexity ? 70 : 0 },
-              logic: { label: 'Business Logic', value: ro.business_logic || null, confidence: ro.business_logic ? 65 : 0 },
-              integrations: { label: 'Integrations', value: ro.integrations || null, confidence: ro.integrations ? 60 : 0 },
+              auth: { label: 'Auth & Users', value: isFilled(ro.auth_and_users) ? ro.auth_and_users : null, confidence: isFilled(ro.auth_and_users) ? 75 : 0 },
+              data: { label: 'Data & Storage', value: isFilled(ro.data_and_storage) ? ro.data_and_storage : null, confidence: isFilled(ro.data_and_storage) ? 75 : 0 },
+              ui: { label: 'UI Complexity', value: isFilled(ro.ui_complexity) ? ro.ui_complexity : null, confidence: isFilled(ro.ui_complexity) ? 70 : 0 },
+              logic: { label: 'Business Logic', value: isFilled(ro.business_logic) ? ro.business_logic : null, confidence: isFilled(ro.business_logic) ? 65 : 0 },
+              integrations: { label: 'Integrations', value: isFilled(ro.integrations) ? ro.integrations : null, confidence: isFilled(ro.integrations) ? 60 : 0 },
             };
           }
 

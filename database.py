@@ -14,6 +14,17 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
+class ChatSession(Base):
+    """Persists chat sessions across server restarts."""
+    __tablename__ = "chat_sessions"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
+    conversation_history: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    requirements_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class GeneratedApp(Base):
     """Stores simple/tailored mode generated apps (HTML/CSS/JS)."""
     __tablename__ = "generated_apps"

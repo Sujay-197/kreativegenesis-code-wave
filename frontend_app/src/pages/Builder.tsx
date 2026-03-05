@@ -312,41 +312,45 @@ export default function Builder() {
                     Choose the experience that fits you best. You can switch anytime.
                   </p>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <ModeCard
-                    mode="simple"
-                    title="Simple Mode"
-                    subtitle="For everyone"
-                    description="Describe your idea in plain language. I'll ask friendly questions and handle all the technical details."
-                    features={[
-                      'Jargon-free conversation',
-                      'Visual blueprint updates live',
-                      'Ready in under 15 minutes',
-                      'No technical knowledge needed',
-                    ]}
-                    icon={<Sparkles size={12} />}
-                    accentClass="bg-forge-accent"
-                    borderClass="border-forge-accent/30 hover:border-forge-accent/60"
-                    badgeClass="bg-forge-accent/15 text-forge-accent"
-                    onSelect={() => selectMode('simple')}
-                  />
-                  <ModeCard
-                    mode="expert"
-                    title="Expert Mode"
-                    subtitle="For developers"
-                    description="Speak in technical shorthand. Define entities, routes, and logic precisely. Maximum speed and control."
-                    features={[
-                      'Technical spec language',
-                      'Entity & route definitions',
-                      'Architecture-aware questions',
-                      'Ready in under 10 minutes',
-                    ]}
-                    icon={<Code2 size={12} />}
-                    accentClass="bg-forge-emerald"
-                    borderClass="border-forge-emerald/30 hover:border-forge-emerald/60"
-                    badgeClass="bg-forge-emerald/15 text-forge-emerald"
-                    onSelect={() => selectMode('expert')}
-                  />
+                <div className="flex flex-col md:flex-row gap-6 w-full">
+                  <div className="w-full md:flex-[7]">
+                    <ModeCard
+                      mode="simple"
+                      title="Simple Mode"
+                      subtitle="For everyone"
+                      description="Describe your idea in plain language. I'll ask friendly questions and handle all the technical details."
+                      features={[
+                        'Jargon-free conversation',
+                        'Visual blueprint updates live',
+                        'Ready in under 15 minutes',
+                        'No technical knowledge needed',
+                      ]}
+                      icon={<Sparkles size={12} />}
+                      accentClass="bg-forge-accent"
+                      borderClass="border-forge-accent/30 hover:border-forge-accent/60"
+                      badgeClass="bg-forge-accent/15 text-forge-accent"
+                      onSelect={() => selectMode('simple')}
+                    />
+                  </div>
+                  <div className="w-full md:flex-[3]">
+                    <ModeCard
+                      mode="expert"
+                      title="Expert Mode"
+                      subtitle="For developers"
+                      description="Speak in technical shorthand. Define entities, routes, and logic precisely. Maximum speed and control."
+                      features={[
+                        'Technical spec language',
+                        'Entity & route definitions',
+                        'Architecture-aware questions',
+                        'Ready in under 10 minutes',
+                      ]}
+                      icon={<Code2 size={12} />}
+                      accentClass="bg-forge-emerald"
+                      borderClass="border-forge-emerald/30 hover:border-forge-emerald/60"
+                      badgeClass="bg-forge-emerald/15 text-forge-emerald"
+                      onSelect={() => selectMode('expert')}
+                    />
+                  </div>
                 </div>
               </div>
             </motion.div>

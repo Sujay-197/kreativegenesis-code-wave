@@ -519,29 +519,13 @@ def get_genai_response(conversation_history: list, current_requirements: dict) -
 
     import re
 
-    # 1. Fetch next question using Groq (Llama 3 8B) — deficit-driven with template context
-    llama_prompt = build_llama_prompt(current_requirements, conversation_history)
-    messages = [{"role": "system", "content": llama_prompt}]
-    for msg in conversation_history:
-        role = "assistant" if msg["role"] == "model" else "user"
-        messages.append({"role": role, "content": msg["parts"][0]})
-        
-    llama_response = groq_client.chat.completions.create(
-        model="llama3-8b-8192",
-        messages=messages,  # type: ignore[arg-type]
-        temperature=0.7,
-        max_tokens=250
-    )
-    llama_content = llama_response.choices[0].message.content
-    next_question = llama_content.strip() if llama_content else ""
-
-    # 2. Extract requirements using HF Qwen 7B — with template reference for better extraction
+    # 1) Extract requirements first using the latest conversation
+    # so question generation can use the UPDATED JSON and avoid repeats.
     qwen_prompt = build_qwen_prompt(current_requirements, conversation_history)
     extraction_messages = [{"role": "system", "content": qwen_prompt}]
     for msg in conversation_history:
         role = "assistant" if msg["role"] == "model" else "user"
         extraction_messages.append({"role": role, "content": msg["parts"][0]})
-    extraction_messages.append({"role": "assistant", "content": next_question})
     
     qwen_response = hf_client.chat_completion(
         model="Qwen/Qwen2.5-7B-Instruct",
@@ -580,6 +564,26 @@ def get_genai_response(conversation_history: list, current_requirements: dict) -
         else:
             merged_requirements[key] = "Not yet discussed"
 
+    # Heuristic parser for short/typo user replies so we still progress JSON.
+    last_user_text = ""
+    for msg in reversed(conversation_history):
+        if msg["role"] == "user":
+            last_user_text = msg["parts"][0].lower().strip()
+            break
+
+    if last_user_text:
+        if (not _is_filled(merged_requirements.get("auth_and_users")) and
+            any(x in last_user_text for x in ["just me", "jst me", "only me", "solo", "myself"])):
+            merged_requirements["auth_and_users"] = "Single user, no authentication needed"
+
+        if not _is_filled(merged_requirements.get("ui_complexity")):
+            if "all of them" in last_user_text or "all" == last_user_text:
+                merged_requirements["ui_complexity"] = "Needs adding records, list views, and summary dashboard"
+            elif any(x in last_user_text for x in ["dashboard", "summary"]):
+                merged_requirements["ui_complexity"] = "Dashboard-centric view with summaries"
+            elif "list" in last_user_text:
+                merged_requirements["ui_complexity"] = "List-centric interface"
+
     # If a template matches, pre-fill any remaining "Not yet discussed" dimensions
     # with sensible defaults from the template (user can refine later)
     template = _find_matching_template(merged_requirements, conversation_history)
@@ -587,6 +591,45 @@ def get_genai_response(conversation_history: list, current_requirements: dict) -
         for key in ["auth_and_users", "data_and_storage", "ui_complexity", "business_logic", "integrations"]:
             if merged_requirements[key] == "Not yet discussed" and template.get(key):
                 merged_requirements[key] = template[key] + " (default — refine if needed)"
+
+    # Build next question using the UPDATED requirements.
+    llama_prompt = build_llama_prompt(merged_requirements, conversation_history)
+    messages = [{"role": "system", "content": llama_prompt}]
+    for msg in conversation_history:
+        role = "assistant" if msg["role"] == "model" else "user"
+        messages.append({"role": role, "content": msg["parts"][0]})
+
+    # Detect low-signal reply with no requirements progress and ask for clarification.
+    progressed = any(
+        merged_requirements.get(k, "Not yet discussed") != current_requirements.get(k, "Not yet discussed")
+        for k in ["auth_and_users", "data_and_storage", "ui_complexity", "business_logic", "integrations"]
+    )
+    token_count = len([t for t in re.split(r"\s+", last_user_text) if t]) if last_user_text else 0
+    if last_user_text and (not progressed) and token_count <= 3:
+        next_question = "Sorry, I did not quite catch that. Could you rephrase it in a bit more detail?"
+    else:
+        llama_response = groq_client.chat.completions.create(
+            model="llama3-8b-8192",
+            messages=messages,  # type: ignore[arg-type]
+            temperature=0.7,
+            max_tokens=250
+        )
+        llama_content = llama_response.choices[0].message.content
+        next_question = llama_content.strip() if llama_content else ""
+
+    # Repetition guard: if model repeats last assistant question, force a deficit-focused fallback.
+    last_model_question = ""
+    for msg in reversed(conversation_history):
+        if msg["role"] == "model":
+            last_model_question = msg["parts"][0].strip().lower()
+            break
+    if next_question.strip().lower() == last_model_question:
+        deficits = _get_deficits(merged_requirements)
+        if deficits:
+            first_gap = deficits[0]
+            next_question = f"Thanks. To make sure I get this right, could you clarify this part: {first_gap}?"
+        else:
+            next_question = "Thanks, that helps. Is there anything else you want this app to do before we generate it?"
 
     # Calculate confidence based on how many dimensions have real info
     filled = sum(1 for v in merged_requirements.values() if _is_filled(v))

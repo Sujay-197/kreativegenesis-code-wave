@@ -16,6 +16,7 @@ interface ModeCardProps {
 }
 
 const ModeCard: React.FC<ModeCardProps> = ({
+  mode,
   title,
   subtitle,
   description,
@@ -26,6 +27,11 @@ const ModeCard: React.FC<ModeCardProps> = ({
   badgeClass,
   onSelect,
 }) => {
+  // Calculate icon size based on mode - Simple gets larger icons (70%), Expert gets smaller (30%)
+  const iconSize = mode === 'simple' ? 24 : 14;
+  const badgePadding = mode === 'simple' ? 'px-4 py-1.5' : 'px-3 py-1';
+  const badgeTextSize = mode === 'simple' ? 'text-sm' : 'text-xs';
+
   return (
     <motion.button
       whileHover={{ y: -4, scale: 1.01 }}
@@ -34,8 +40,8 @@ const ModeCard: React.FC<ModeCardProps> = ({
       onClick={onSelect}
       className={`group relative w-full text-left p-8 rounded-2xl border-2 ${borderClass} bg-forge-surface hover:bg-forge-surface-hover transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-forge-accent focus-visible:ring-offset-2 focus-visible:ring-offset-forge-dark cursor-pointer`}
     >
-      <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold mb-6 ${badgeClass}`}>
-        {icon}
+      <div className={`inline-flex items-center gap-2 ${badgePadding} rounded-full ${badgeTextSize} font-semibold mb-6 ${badgeClass}`}>
+        {React.cloneElement(icon as React.ReactElement, { size: iconSize })}
         {subtitle}
       </div>
 

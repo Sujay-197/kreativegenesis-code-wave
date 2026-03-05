@@ -1,11 +1,11 @@
 import uuid
 import os
 import json
+import asyncio
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from google import genai
-from google.genai import types
+import groq
 from dotenv import load_dotenv
 from huggingface_hub import InferenceClient
 from sqlalchemy.orm import Session
@@ -27,8 +27,8 @@ app.add_middleware(
 # In-memory dictionary mapped by UUID
 sessions = {}
 
-# System prompt for the Companion
-SYSTEM_PROMPT = """You are AppForge AI's Simple Mode Companion. Your goal is to empower non-technical users (small business owners, NGOs, educators, etc.) by helping them plan software tools that solve their daily problems. 
+# System prompt for Groq Llama 3 8B
+LLAMA_PROMPT = """You are AppForge AI's Simple Mode Companion. Your goal is to empower non-technical users (small business owners, NGOs, educators, etc.) by helping them plan software tools that solve their daily problems. 
 Think of yourself as a supportive, empathetic product consultant, not a technical interrogator.
 
 Rules:
@@ -39,19 +39,22 @@ Rules:
 5. DO NOT present long lists or multiple-choice questions. Keep it conversational.
 6. Quietly figure out their requirements across 5 dimensions: Authentication & Users, Data & Storage, UI Complexity, Business Logic & Workflows, and External Integrations.
 
-Your entire response MUST be formatted strictly as a JSON object matching this exact schema:
+Output ONLY your conversational response (the next question). Do not output JSON.
+"""
+
+# System prompt for HF Qwen 7B
+QWEN_PROMPT = """You are a seasoned technical analyzer. Review the conversation history and extract the user's requirements into 5 dimensions.
+You MUST output ONLY valid JSON matching this exact structure:
 {
-  "next_question": "string (the companion's response/question)",
-  "requirements_object": {
-    "auth_and_users": "string",
-    "data_and_storage": "string",
-    "ui_complexity": "string",
-    "business_logic": "string",
-    "integrations": "string"
-  },
+  "auth_and_users": "string",
+  "data_and_storage": "string",
+  "ui_complexity": "string",
+  "business_logic": "string",
+  "integrations": "string",
   "confidence_score": float (0.0 to 100.0)
 }
-Ensure the confidence score increases as requirements become clearer. DO NOT return markdown formatting like ```json, just the raw JSON text.
+Specific details only. If unknown, write "Not yet discussed".
+Output ONLY the JSON object, with no markdown formatting.
 """
 
 # Pydantic Models for JSON structure
@@ -91,8 +94,9 @@ def get_db():
         db.close()
 
 import os
-# Initialize Google GenAI client
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+# Initialize Groq client
+groq_api_key = os.getenv("GROQ_API_KEY")
+groq_client = groq.Groq(api_key=groq_api_key) if groq_api_key else None
 
 # Initialize Hugging Face Inference Client
 hf_token = os.getenv("HUGGINGFACE_API_KEY")
@@ -142,26 +146,63 @@ def extract_code_blocks(markdown_text: str) -> tuple[str, str, str]:
 
 def get_genai_response(conversation_history: list) -> str:
     """Takes the history and returns a strictly typed JSON response string."""
-    contents = []
-    
+    if not groq_client:
+        raise Exception("GROQ_API_KEY not configured")
+    if not hf_client:
+        raise Exception("HUGGINGFACE_API_KEY not configured")
+        
+    # 1. Fetch next question using Groq (Llama 3 8B)
+    messages = [{"role": "system", "content": LLAMA_PROMPT}]
     for msg in conversation_history:
-        contents.append(
-            types.Content(
-                role=msg["role"],
-                parts=[types.Part.from_text(text=msg["parts"][0])]
-            )
-        )
-    
-    response = client.models.generate_content(
-        model='gemini-2.5-flash',
-        contents=contents,
-        config=types.GenerateContentConfig(
-            system_instruction=SYSTEM_PROMPT,
-            response_mime_type="application/json",
-            temperature=0.7,
-        ),
+        role = "assistant" if msg["role"] == "model" else "user"
+        messages.append({"role": role, "content": msg["parts"][0]})
+        
+    llama_response = groq_client.chat.completions.create(
+        model="llama3-8b-8192",
+        messages=messages,
+        temperature=0.7,
+        max_tokens=200
     )
-    return response.text
+    next_question = llama_response.choices[0].message.content.strip()
+
+    # 2. Extract requirements using HF Qwen 7B
+    extraction_messages = [{"role": "system", "content": QWEN_PROMPT}]
+    extraction_messages.extend(messages[1:]) # Add conversation history
+    extraction_messages.append({"role": "assistant", "content": next_question})
+    
+    qwen_response = hf_client.chat_completion(
+        model="Qwen/Qwen2.5-7B-Instruct",
+        messages=extraction_messages,
+        temperature=0.1,
+        max_tokens=600
+    )
+    requirements_json_str = qwen_response.choices[0].message.content.strip()
+    
+    # Try to clean up output
+    import re
+    json_match = re.search(r'\{.*\}', requirements_json_str, re.DOTALL)
+    if json_match:
+        requirements_json_str = json_match.group(0)
+        
+    try:
+        req_data = json.loads(requirements_json_str)
+    except Exception:
+        req_data = {}
+        
+    # Construct final output
+    final_output = {
+        "next_question": next_question,
+        "requirements_object": {
+            "auth_and_users": req_data.get("auth_and_users", "Not yet discussed"),
+            "data_and_storage": req_data.get("data_and_storage", "Not yet discussed"),
+            "ui_complexity": req_data.get("ui_complexity", "Not yet discussed"),
+            "business_logic": req_data.get("business_logic", "Not yet discussed"),
+            "integrations": req_data.get("integrations", "Not yet discussed")
+        },
+        "confidence_score": float(req_data.get("confidence_score", 0.0))
+    }
+    
+    return json.dumps(final_output)
 
 @app.post("/api/chat/simple", response_model=ChatResponseOuter)
 async def simple_mode_chat(request: ChatRequest):
@@ -179,7 +220,11 @@ async def simple_mode_chat(request: ChatRequest):
     })
     
     try:
-        response_text = get_genai_response(history)
+        loop = asyncio.get_event_loop()
+        response_text = await asyncio.wait_for(
+            loop.run_in_executor(None, get_genai_response, history),
+            timeout=30.0
+        )
         
         response_data = json.loads(response_text)
         
@@ -192,8 +237,18 @@ async def simple_mode_chat(request: ChatRequest):
         response_data["session_id"] = session_id
         
         return response_data
+    except asyncio.TimeoutError:
+        # Remove the unanswered user message so session stays clean
+        history.pop()
+        raise HTTPException(status_code=504, detail="AI response timed out. Please try again.")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        err = str(e)
+        if "RESOURCE_EXHAUSTED" in err or "429" in err:
+            history.pop()
+            raise HTTPException(status_code=429, detail="Rate limit reached. Please wait a moment and try again.")
+        # Remove broken message from history
+        history.pop()
+        raise HTTPException(status_code=500, detail=err)
 
 @app.get("/api/health")
 async def health_check():

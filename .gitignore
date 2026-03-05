@@ -1,0 +1,11 @@
+af01/
+.env
+__pycache__/
+*.db
+.gemini/
+.agents/
+node_modules/
+dist/
+.DS_Store
+frontend_files/
+frontend_temp/

@@ -2,9 +2,9 @@
 
 ## Team Code Wave
 
-##AI and Automation
+## AI and Automation
 
-##No Code AI 
+## No Code AI 
 
 # InNovus AI — Conversational No-Code App Builder
 

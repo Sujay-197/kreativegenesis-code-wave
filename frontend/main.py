@@ -70,6 +70,8 @@ def _normalize_requirements(requirements: dict | None) -> dict:
         normalized["_discussed"] = requirements["_discussed"]
     elif "_discussed" not in normalized:
         normalized["_discussed"] = []
+    if requirements and "_last_asked" in requirements:
+        normalized["_last_asked"] = requirements["_last_asked"]
     return normalized
 
 
@@ -363,7 +365,8 @@ def get_genai_response(conversation_history: list, current_requirements: dict) -
     # 1) Extract requirements using Qwen
     qwen_messages = [{"role": "system", "content": QWEN_PROMPT}]
     # Include previous requirements for context
-    prev_json = json.dumps({k: v for k, v in current_requirements.items() if k != "_discussed"}, indent=2)
+    _internal_keys = {"_discussed", "_last_asked"}
+    prev_json = json.dumps({k: v for k, v in current_requirements.items() if k not in _internal_keys}, indent=2)
     qwen_messages.append({"role": "system", "content": f"Previously extracted requirements (preserve and expand):\n{prev_json}"})
     for msg in conversation_history:
         role = "assistant" if msg["role"] == "model" else "user"
@@ -403,22 +406,30 @@ def get_genai_response(conversation_history: list, current_requirements: dict) -
         else:
             merged_requirements[key] = "Not yet discussed"
 
-    # 3) Update discussed dimensions — once discussed, always discussed
+    # 3) Commit the dimension we asked about last turn (user just responded to it)
+    # This guarantees we advance even when Qwen fails to extract a short answer.
+    _last_asked = current_requirements.get("_last_asked", None)
     discussed = set(current_requirements.get("_discussed", []))
+    if _last_asked:
+        discussed.add(_last_asked)  # user responded to this question — mark covered
+    # Also add anything Qwen successfully extracted this turn
     for key in DIMENSION_ORDER:
         if _is_filled(merged_requirements.get(key)):
             discussed.add(key)
     merged_requirements["_discussed"] = list(discussed)
 
-    # 4) Deterministic dimension selection — pick the NEXT unfilled dimension
+    # 4) Deterministic dimension selection — pick the NEXT uncovered dimension
     next_dim = None
     for key in DIMENSION_ORDER:
         if key not in discussed:
             next_dim = key
             break
 
+    # Record which dimension we are about to ask, so next turn can commit it
+    merged_requirements["_last_asked"] = next_dim
+
     # 5) Build targeted Llama prompt
-    req_summary = "\n".join(f"  - {dim}: {val}" for dim, val in merged_requirements.items() if dim != "_discussed")
+    req_summary = "\n".join(f"  - {dim}: {val}" for dim, val in merged_requirements.items() if dim not in {"_discussed", "_last_asked"})
     if next_dim:
         dimension_instruction = (
             f"\n\nYour ONLY task right now: Ask ONE warm, conversational question about "
@@ -458,10 +469,10 @@ def get_genai_response(conversation_history: list, current_requirements: dict) -
         else:
             next_question = "Thanks, that helps a lot. Is there anything else you'd like this app to do before we build it?"
 
-    # Calculate confidence from discussion coverage
-    filled = len(discussed)
+    # Confidence based on covered dimensions (discussed + the one we're about to ask)
+    covered = len(discussed) + (1 if next_dim else 0)
     raw_confidence = float(req_data.get("confidence_score", 0.0))
-    min_confidence = (filled / 6.0) * 100.0
+    min_confidence = (covered / 6.0) * 100.0
     confidence = max(raw_confidence, min_confidence)
 
     final_output = {

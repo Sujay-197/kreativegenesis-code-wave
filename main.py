@@ -117,6 +117,8 @@ def _normalize_requirements(requirements: dict | None) -> dict:
         normalized["_discussed"] = requirements["_discussed"]
     elif "_discussed" not in normalized:
         normalized["_discussed"] = []
+    if requirements and "_last_asked" in requirements:
+        normalized["_last_asked"] = requirements["_last_asked"]
     return normalized
 
 
@@ -241,9 +243,10 @@ Output ONLY your conversational response (the next question). Do not output JSON
 
 def build_llama_prompt(current_requirements: dict, history: list, target_dimension: str | None = None) -> str:
     """Build the Llama system prompt focused on a specific dimension to ask about."""
+    _internal = {"_discussed", "_last_asked"}
     req_summary = "\n".join(
         f"  - {dim}: {val}" for dim, val in current_requirements.items()
-        if dim != "_discussed"
+        if dim not in _internal
     )
 
     # Deterministic dimension targeting — tell Llama EXACTLY what to ask about
@@ -657,19 +660,27 @@ def get_genai_response(conversation_history: list, current_requirements: dict) -
             elif template.get(key):
                 merged_requirements[key] = template[key] + " (default — refine if needed)"
 
-    # 5) Update discussed dimensions — once discussed, always discussed (prevents re-asking)
+    # 5) Commit the dimension we asked about last turn (user just responded to it)
+    # This guarantees we advance even when Qwen fails to extract a short/brief answer.
+    _last_asked = current_requirements.get("_last_asked", None)
     discussed = set(current_requirements.get("_discussed", []))
+    if _last_asked:
+        discussed.add(_last_asked)  # user responded to this question — mark covered
+    # Also add anything Qwen successfully extracted this turn
     for key in DIMENSION_ORDER:
         if _is_filled(merged_requirements.get(key)):
             discussed.add(key)
     merged_requirements["_discussed"] = list(discussed)
 
-    # 6) Deterministic dimension selection — pick the NEXT unfilled dimension
+    # 6) Deterministic dimension selection — pick the NEXT uncovered dimension
     next_dim = None
     for key in DIMENSION_ORDER:
         if key not in discussed:
             next_dim = key
             break
+
+    # Record which dimension we are about to ask so next turn can commit it
+    merged_requirements["_last_asked"] = next_dim
 
     # 7) Generate next question using Llama, targeting the specific dimension
     llama_prompt = build_llama_prompt(merged_requirements, conversation_history, target_dimension=next_dim)
@@ -708,14 +719,15 @@ def get_genai_response(conversation_history: list, current_requirements: dict) -
         else:
             next_question = "Thanks, that helps a lot. Is there anything else you'd like this app to do before we build it?"
 
-    # Calculate confidence from discussed coverage
-    filled = len(discussed)
+    # Confidence based on covered dimensions (discussed + the one we're about to ask)
+    covered = len(discussed) + (1 if next_dim else 0)
     raw_confidence = float(req_data.get("confidence_score", 0.0))
-    min_confidence = (filled / 6.0) * 100.0
+    min_confidence = (covered / 6.0) * 100.0
     confidence = max(raw_confidence, min_confidence)
 
-    # Strip _discussed from the output requirements_object (internal tracking only)
-    output_requirements = {k: v for k, v in merged_requirements.items() if k != "_discussed"}
+    # Strip internal tracking keys from the output requirements_object
+    _internal_keys = {"_discussed", "_last_asked"}
+    output_requirements = {k: v for k, v in merged_requirements.items() if k not in _internal_keys}
 
     final_output = {
         "next_question": next_question,

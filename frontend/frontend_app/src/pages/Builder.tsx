@@ -396,7 +396,7 @@ export default function Builder() {
                     <div className="flex-[4]">
                       <ModeCard
                         mode="simple"
-                        title="Simple Mode"
+                        title="Standard Mode"
                         subtitle="For everyone"
                         description="Describe your idea in plain language. I'll ask friendly questions and handle all the technical details."
                         features={[

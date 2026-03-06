@@ -179,12 +179,93 @@ _DIMENSION_LABELS = {
     "integrations": "Whether the app needs to connect to external services",
 }
 
+DIMENSION_ORDER = [
+    "problem_statement_or_domain",
+    "auth_and_users",
+    "data_and_storage",
+    "ui_complexity",
+    "business_logic",
+    "integrations",
+]
+
 
 def _is_filled(val: str | None) -> bool:
     """Check if a requirement dimension has real info (not empty/placeholder)."""
     if not val:
         return False
     return val.strip().lower() not in ("not yet discussed", "n/a", "none", "unknown", "")
+
+
+def _sanitize_qwen_value(val: Any) -> str | None:
+    """Normalize Qwen field values to non-empty strings when possible."""
+    if val is None:
+        return None
+    if isinstance(val, (dict, list)):
+        return json.dumps(val, ensure_ascii=True)
+    if isinstance(val, (int, float)):
+        return str(val)
+    if isinstance(val, str):
+        cleaned = val.strip()
+        return cleaned if cleaned else None
+    return None
+
+
+def _validate_qwen_requirements(req_data: dict) -> dict:
+    """Return only expected keys from Qwen with sanitized string values."""
+    if not isinstance(req_data, dict):
+        return {}
+    cleaned: dict[str, Any] = {}
+    for key in DIMENSION_ORDER:
+        if key in req_data:
+            cleaned_val = _sanitize_qwen_value(req_data.get(key))
+            if cleaned_val:
+                cleaned[key] = cleaned_val
+    if "confidence_score" in req_data:
+        try:
+            score_val = req_data.get("confidence_score")
+            if score_val is not None:
+                cleaned["confidence_score"] = float(score_val)
+        except Exception:
+            pass
+    return cleaned
+
+
+def _infer_last_asked_dimension(last_model_text: str) -> str | None:
+    """Infer which dimension the last assistant question targeted."""
+    if not last_model_text:
+        return None
+    text = last_model_text.lower()
+    if any(k in text for k in ["rule", "step", "automatically", "workflow", "calculate", "logic"]):
+        return "business_logic"
+    if any(k in text for k in ["connect", "integration", "tool", "service", "email", "payment"]):
+        return "integrations"
+    if any(k in text for k in ["look", "screen", "dashboard", "view", "interface", "layout"]):
+        return "ui_complexity"
+    if any(k in text for k in ["track", "record", "information", "data", "list", "store"]):
+        return "data_and_storage"
+    if any(k in text for k in ["who will use", "users", "team", "account", "login"]):
+        return "auth_and_users"
+    if any(k in text for k in ["problem", "solve", "goal", "purpose", "domain"]):
+        return "problem_statement_or_domain"
+    return None
+
+
+def _apply_last_answer_fallback(
+    merged_requirements: dict,
+    last_user_text: str,
+    last_asked_dim: str | None,
+) -> None:
+    """Backfill the last asked dimension when Qwen fails on short answers."""
+    if not last_user_text or not last_asked_dim:
+        return
+    if _is_filled(merged_requirements.get(last_asked_dim)):
+        return
+    negative = {"no", "nope", "none", "nah", "not really", "n/a", "na", "nothing"}
+    normalized = last_user_text.strip().lower().strip(".!?")
+    if normalized in negative:
+        merged_requirements[last_asked_dim] = "User has no additional requirements for this area."
+    else:
+        merged_requirements[last_asked_dim] = f"User said: {last_user_text.strip()}"
 
 
 def _get_deficits(requirements: dict) -> list[str]:
@@ -294,9 +375,10 @@ Output ONLY the JSON object, with no markdown formatting, no code fences, no exp
 
 def build_extraction_prompt(previous_requirements: dict) -> str:
     """Build extraction prompt with previous requirements for accumulation."""
-    if all(v == "Not yet discussed" for k, v in previous_requirements.items() if k != "confidence_score"):
+    _internal = {"confidence_score", "_discussed", "_last_asked"}
+    if all(v == "Not yet discussed" for k, v in previous_requirements.items() if k not in _internal):
         return REQUIREMENTS_EXTRACTION_PROMPT
-    req_json = json.dumps({k: v for k, v in previous_requirements.items() if k != "confidence_score"}, indent=2)
+    req_json = json.dumps({k: v for k, v in previous_requirements.items() if k not in _internal}, indent=2)
     return (
         REQUIREMENTS_EXTRACTION_PROMPT
         + f"\nPreviously extracted requirements (update and expand these, do NOT lose any info):\n{req_json}\n"
@@ -593,15 +675,31 @@ def get_simple_mode_response(conversation_history: list, current_requirements: d
     except Exception:
         req_data = {}
 
+    req_data = _validate_qwen_requirements(req_data)
+
     # Merge: keep previous value if Qwen returned empty / "Not yet discussed" for a field
     merged_requirements = {}
-    for key in ["problem_statement_or_domain", "auth_and_users", "data_and_storage", "ui_complexity", "business_logic", "integrations"]:
+    for key in DIMENSION_ORDER:
         new_val = req_data.get(key, "Not yet discussed")
         old_val = current_requirements.get(key, "Not yet discussed")
         if (not new_val or new_val == "Not yet discussed") and old_val and old_val != "Not yet discussed":
             merged_requirements[key] = old_val
         else:
             merged_requirements[key] = new_val if new_val else "Not yet discussed"
+
+    # Infer last asked dimension from previous assistant question and apply fallback
+    last_user_text_raw = ""
+    last_model_text = ""
+    for msg in reversed(conversation_history):
+        if msg["role"] == "user" and not last_user_text_raw:
+            last_user_text_raw = msg["parts"][0].strip()
+        if msg["role"] == "model" and not last_model_text:
+            last_model_text = msg["parts"][0].strip()
+        if last_user_text_raw and last_model_text:
+            break
+    inferred_dim = _infer_last_asked_dimension(last_model_text)
+    if last_user_text_raw:
+        _apply_last_answer_fallback(merged_requirements, last_user_text_raw, inferred_dim)
 
     # Calculate confidence: count how many dimensions have real info
     filled = sum(1 for v in merged_requirements.values() if _is_filled(v))

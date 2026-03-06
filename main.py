@@ -173,6 +173,60 @@ def _find_matching_template(requirements: dict, history: list) -> dict | None:
     return None
 
 
+def _sanitize_qwen_value(val: Any) -> str | None:
+    """Normalize Qwen field values to non-empty strings when possible."""
+    if val is None:
+        return None
+    if isinstance(val, (dict, list)):
+        return json.dumps(val, ensure_ascii=True)
+    if isinstance(val, (int, float)):
+        return str(val)
+    if isinstance(val, str):
+        cleaned = val.strip()
+        return cleaned if cleaned else None
+    return None
+
+
+def _validate_qwen_requirements(req_data: dict) -> dict:
+    """Return only expected keys from Qwen with sanitized string values."""
+    if not isinstance(req_data, dict):
+        return {}
+    cleaned: dict[str, Any] = {}
+    for key in DIMENSION_ORDER:
+        if key in req_data:
+            cleaned_val = _sanitize_qwen_value(req_data.get(key))
+            if cleaned_val:
+                cleaned[key] = cleaned_val
+    if "confidence_score" in req_data:
+        try:
+            score_val = req_data.get("confidence_score")
+            if score_val is not None:
+                cleaned["confidence_score"] = float(score_val)
+        except Exception:
+            pass
+    return cleaned
+
+
+def _apply_last_answer_fallback(
+    merged_requirements: dict,
+    last_user_text: str,
+    last_asked_dim: str | None,
+) -> None:
+    """Backfill the last asked dimension when Qwen fails on short answers."""
+    if not last_user_text or not last_asked_dim:
+        return
+    if _is_filled(merged_requirements.get(last_asked_dim)):
+        return
+    negative = {
+        "no", "nope", "none", "nah", "not really", "n/a", "na", "nothing"
+    }
+    normalized = last_user_text.strip().lower().strip(".!?")
+    if normalized in negative:
+        merged_requirements[last_asked_dim] = "User has no additional requirements for this area."
+    else:
+        merged_requirements[last_asked_dim] = f"User said: {last_user_text.strip()}"
+
+
 # ─── DB-backed session helpers ───
 
 def _load_session(db: Session, session_id: str | None) -> tuple[str, list, dict]:
@@ -310,8 +364,10 @@ def build_qwen_prompt(previous_requirements: dict, history: list) -> str:
     """Build Qwen prompt with previous requirements and template reference for better extraction."""
     prompt = QWEN_BASE_PROMPT
 
-    if not all(v == "Not yet discussed" for v in previous_requirements.values()):
-        req_json = json.dumps(previous_requirements, indent=2)
+    _internal = {"_discussed", "_last_asked"}
+    prev_only = {k: v for k, v in previous_requirements.items() if k not in _internal}
+    if not all(v == "Not yet discussed" for v in prev_only.values()):
+        req_json = json.dumps(prev_only, indent=2)
         prompt += f"\nPreviously extracted requirements (update and expand these, do NOT lose any info):\n{req_json}\n"
 
     # Provide template reference so Qwen knows the expected detail level
@@ -609,6 +665,8 @@ def get_genai_response(conversation_history: list, current_requirements: dict) -
     except Exception:
         req_data = {}
 
+    req_data = _validate_qwen_requirements(req_data)
+
     # 2) Merge: keep previous value if Qwen lost it
     merged_requirements = {}
     for key in DIMENSION_ORDER:
@@ -627,9 +685,11 @@ def get_genai_response(conversation_history: list, current_requirements: dict) -
 
     # 3) Heuristic parser for short/typo user replies
     last_user_text = ""
+    last_user_text_raw = ""
     for msg in reversed(conversation_history):
         if msg["role"] == "user":
-            last_user_text = msg["parts"][0].lower().strip()
+            last_user_text_raw = msg["parts"][0].strip()
+            last_user_text = last_user_text_raw.lower()
             break
 
     if last_user_text:
@@ -648,6 +708,11 @@ def get_genai_response(conversation_history: list, current_requirements: dict) -
                 merged_requirements["ui_complexity"] = "Dashboard-centric view with summaries"
             elif "list" in last_user_text:
                 merged_requirements["ui_complexity"] = "List-centric interface"
+
+    # Backfill the last asked dimension when Qwen fails on brief replies
+    _last_asked = current_requirements.get("_last_asked", None)
+    if last_user_text_raw:
+        _apply_last_answer_fallback(merged_requirements, last_user_text_raw, _last_asked)
 
     # 4) Template pre-fill for remaining gaps
     template = _find_matching_template(merged_requirements, conversation_history)

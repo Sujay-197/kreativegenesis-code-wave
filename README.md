@@ -182,6 +182,11 @@ Set environment variables
 
 ```
 
+Project is hosted using ** Vercel (FrontEnd) ** and ** Render (BackEnd) ** - where
+environment variables can be set and frontend server can be accesed via:
+
+https://kreativegenesis-code-wave-wtzy.vercel.app/
+
 ### Running the App
 
 ```bash

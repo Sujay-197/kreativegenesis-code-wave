@@ -17,6 +17,21 @@ GENERATED_APPS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "g
 TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "template")
 
 
+def _resolve_template_dir() -> str | None:
+    """Resolve template directory from common runtime locations."""
+    candidates = [
+        TEMPLATE_DIR,
+        os.path.join(os.getcwd(), "template"),
+    ]
+    for candidate in candidates:
+        if os.path.isdir(candidate) and os.path.isfile(os.path.join(candidate, "index.html")):
+            return candidate
+    for candidate in candidates:
+        if os.path.isdir(candidate):
+            return candidate
+    return None
+
+
 def _sanitize_path(path: str) -> str:
     """
     Sanitize a file path to prevent directory traversal attacks.
@@ -145,7 +160,8 @@ def copy_template_assets(job_id: str, plan: dict) -> None:
     Detects the frontend folder from the plan's file list (e.g. 'frontend/').
     If no explicit frontend folder exists, copies assets to the project root.
     """
-    if not os.path.isdir(TEMPLATE_DIR):
+    template_dir = _resolve_template_dir()
+    if not template_dir:
         return
 
     project_dir = get_project_dir(job_id)
@@ -165,7 +181,7 @@ def copy_template_assets(job_id: str, plan: dict) -> None:
     # Asset directories to copy from template
     ASSET_DIRS = ["vendor", "css", "js", "img"]
     for dirname in ASSET_DIRS:
-        src = os.path.join(TEMPLATE_DIR, dirname)
+        src = os.path.join(template_dir, dirname)
         dst = os.path.join(dest_base, dirname)
         if os.path.isdir(src) and not os.path.isdir(dst):
             shutil.copytree(src, dst)

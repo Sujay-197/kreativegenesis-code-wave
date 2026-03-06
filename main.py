@@ -432,12 +432,28 @@ hf_client = InferenceClient(api_key=hf_token) if hf_token else None
 TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "template")
 
 
+def _resolve_template_dir() -> str | None:
+    """Resolve the template directory from common runtime locations."""
+    candidates = [
+        TEMPLATE_DIR,
+        os.path.join(os.getcwd(), "template"),
+    ]
+    for candidate in candidates:
+        if os.path.isdir(candidate) and os.path.isfile(os.path.join(candidate, "index.html")):
+            return candidate
+    for candidate in candidates:
+        if os.path.isdir(candidate):
+            return candidate
+    return None
+
+
 def _load_template_assets() -> dict[str, str]:
     """Read core template files from the template/ folder and return {relative_path: content}.
     Skips vendor libraries, SVG icons, and other bulky assets that the LLM doesn't need.
     Returns empty dict if folder is missing or empty."""
     assets: dict[str, str] = {}
-    if not os.path.isdir(TEMPLATE_DIR):
+    template_dir = _resolve_template_dir()
+    if not template_dir:
         return assets
 
     # Folders to skip — vendor libs, font icons, build artifacts
@@ -447,12 +463,12 @@ def _load_template_assets() -> dict[str, str]:
     # Skip minified duplicates — keep only the readable versions
     SKIP_SUFFIXES = {".min.css", ".min.js", ".map", ".min.map"}
 
-    for root, dirs, files in os.walk(TEMPLATE_DIR):
+    for root, dirs, files in os.walk(template_dir):
         # Prune dirs we don't need
         dirs[:] = [d for d in dirs if d.lower() not in SKIP_DIRS]
         for fname in files:
             full = os.path.join(root, fname)
-            rel = os.path.relpath(full, TEMPLATE_DIR).replace("\\", "/")
+            rel = os.path.relpath(full, template_dir).replace("\\", "/")
             ext = os.path.splitext(fname)[1].lower()
             if ext not in ALLOWED_EXTS:
                 continue

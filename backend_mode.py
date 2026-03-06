@@ -467,22 +467,38 @@ Do not include any explanations outside of the code blocks. Give me only the cod
 TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "template")
 
 
+def _resolve_template_dir() -> str | None:
+    """Resolve the template directory from common runtime locations."""
+    candidates = [
+        TEMPLATE_DIR,
+        os.path.join(os.getcwd(), "template"),
+    ]
+    for candidate in candidates:
+        if os.path.isdir(candidate) and os.path.isfile(os.path.join(candidate, "index.html")):
+            return candidate
+    for candidate in candidates:
+        if os.path.isdir(candidate):
+            return candidate
+    return None
+
+
 def _load_template_assets() -> dict[str, str]:
     """Read core template files from the template/ folder.
     Skips vendor libraries, SVG icons, and other bulky assets."""
     assets: dict[str, str] = {}
-    if not os.path.isdir(TEMPLATE_DIR):
+    template_dir = _resolve_template_dir()
+    if not template_dir:
         return assets
 
     SKIP_DIRS = {"vendor", "node_modules", "scss", "less", "sprites", "svgs", "webfonts", "metadata", ".git"}
     ALLOWED_EXTS = {".html", ".css", ".js", ".py", ".sql", ".json"}
     SKIP_SUFFIXES = {".min.css", ".min.js", ".map", ".min.map"}
 
-    for root, dirs, files in os.walk(TEMPLATE_DIR):
+    for root, dirs, files in os.walk(template_dir):
         dirs[:] = [d for d in dirs if d.lower() not in SKIP_DIRS]
         for fname in files:
             full = os.path.join(root, fname)
-            rel = os.path.relpath(full, TEMPLATE_DIR).replace("\\", "/")
+            rel = os.path.relpath(full, template_dir).replace("\\", "/")
             ext = os.path.splitext(fname)[1].lower()
             if ext not in ALLOWED_EXTS:
                 continue
@@ -546,6 +562,12 @@ def _get_template_context() -> str:
     if _CACHED_TEMPLATE_CONTEXT is None:
         assets = _load_template_assets()
         _CACHED_TEMPLATE_CONTEXT = _build_asset_context(assets)
+    # Avoid permanently caching an empty context if template files appear later.
+    if not _CACHED_TEMPLATE_CONTEXT:
+        assets = _load_template_assets()
+        refreshed = _build_asset_context(assets)
+        if refreshed:
+            _CACHED_TEMPLATE_CONTEXT = refreshed
     return _CACHED_TEMPLATE_CONTEXT
 
 

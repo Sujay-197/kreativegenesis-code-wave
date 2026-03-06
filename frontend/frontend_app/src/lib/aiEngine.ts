@@ -349,7 +349,7 @@ export function generateAppHTML(
     `<li class="nav-item${i === 0 ? ' active' : ''}"><a class="nav-link" href="#" onclick="showView('list', this)"><i class="fas fa-fw fa-table"></i><span>${e}s</span></a></li>`
   ).join('\n          ');
 
-  return \`<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -544,5 +544,5 @@ export function generateAppHTML(
     });
   </script>
 </body>
-</html>\`;
+</html>`;
 }

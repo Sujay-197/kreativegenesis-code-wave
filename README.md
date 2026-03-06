@@ -160,30 +160,6 @@ InNovus AI introduces a **conversational intelligence layer before code generati
 
 ---
 
-## Project Structure
-
-```
-innovus/
-├── backend/
-│   ├── app.py               # Main application entry point
-│   ├── routes/
-│   │   ├── session.py       # Q&A session management
-│   │   ├── generate.py      # App generation endpoint
-│   │   └── export.py        # ZIP + shareable link logic
-│   ├── llm/
-│   │   ├── groq_agent.py    # Groq Q&A engine
-│   │   └── qwen_mapper.py   # Qwen template selector
-│   ├── templates/           # Base HTML/CSS/JS templates
-│   ├── models.py            # SQLAlchemy models
-│   └── database.py          # DB connection + setup
-├── frontend_app/
-│   ├── index.html           # Homepage / mode selection
-│   ├── 
-├── requirements.txt
-└── README.md
-```
-
----
 
 ## Getting Started
 

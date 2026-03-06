@@ -6,24 +6,26 @@ import ChatInterface from '../components/ChatInterface';
 import BlueprintPanel from '../components/BlueprintPanel';
 import Particles from '../components/Particles';
 import type { Message } from '../components/ChatInterface';
-import type { RequirementsState } from '../lib/aiEngine';
+import type { RequirementsState, StylePreferences } from '../lib/aiEngine';
 import RequirementsSummary from '../components/RequirementsSummary';
 import GenerationProgress from '../components/GenerationProgress';
 import AppPreview from '../components/AppPreview';
 import ModeCard from '../components/ModeCard';
+import StylePicker from '../components/StylePicker';
 import {
   initialRequirements,
   processUserMessage,
   getOpeningMessage,
   generateAppHTML,
   getOverallConfidence,
+  defaultStylePreferences,
 } from '../lib/aiEngine';
 
 const API_BASE = (import.meta as any).env?.VITE_API_URL
   ? `${(import.meta as any).env.VITE_API_URL}/api`
   : '/api';
 
-type BuilderStage = 'mode-select' | 'chat' | 'summary' | 'generating' | 'preview';
+type BuilderStage = 'mode-select' | 'chat' | 'summary' | 'styling' | 'generating' | 'preview';
 
 const TOTAL_QUESTIONS = 7;
 
@@ -90,6 +92,7 @@ export default function Builder() {
   const [generatedHTML, setGeneratedHTML] = useState('');
   const [showGreeting, setShowGreeting] = useState(false);
   const [greetingMode, setGreetingMode] = useState<'simple' | 'expert'>('simple');
+  const [stylePreferences, setStylePreferences] = useState<StylePreferences>(defaultStylePreferences());
   const conversationHistory = useRef<{ role: 'user' | 'ai'; content: string }[]>([]);
   const sessionIdRef = useRef<string | null>(null);
   const greetingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -297,7 +300,7 @@ export default function Builder() {
         }
       } catch {
         console.warn('Backend generate unavailable — using local generation');
-        html = generateAppHTML(requirements, appName || 'My App', mode);
+        html = generateAppHTML(requirements, appName || 'My App', mode, stylePreferences);
       }
 
       clearInterval(interval);
@@ -316,6 +319,7 @@ export default function Builder() {
     setQuestionCount(0);
     setGenerationProgress(0);
     setGeneratedHTML('');
+    setStylePreferences(defaultStylePreferences());
     conversationHistory.current = [];
     sessionIdRef.current = null;
   }, []);
@@ -469,7 +473,7 @@ export default function Builder() {
                           requirements={requirements}
                           appName={appName}
                           mode={mode}
-                          onConfirm={handleConfirmGenerate}
+                          onConfirm={() => setStage('styling')}
                           onEdit={() => setStage('chat')}
                         />
                       </motion.div>
@@ -498,6 +502,40 @@ export default function Builder() {
                     </motion.div>
                   )}
                 </AnimatePresence>
+              </motion.div>
+            )}
+
+            {stage === 'styling' && (
+              <motion.div
+                key="styling"
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -16 }}
+                transition={{ duration: 0.3 }}
+                className="flex-1 flex items-start justify-center p-6 overflow-y-auto"
+              >
+                <div className="w-full max-w-lg space-y-6">
+                  <StylePicker
+                    preferences={stylePreferences}
+                    onChange={setStylePreferences}
+                  />
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setStage('summary')}
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-forge-border text-forge-muted hover:text-white hover:border-forge-muted transition-all duration-200 text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-forge-accent"
+                    >
+                      <ArrowLeft size={14} />
+                      Back
+                    </button>
+                    <button
+                      onClick={handleConfirmGenerate}
+                      className="flex-[2] flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-forge-accent hover:bg-forge-accent-hover text-white text-sm font-semibold transition-all duration-200 hover:scale-[1.02] focus:outline-none focus-visible:ring-2 focus-visible:ring-forge-accent"
+                    >
+                      <Sparkles size={14} />
+                      Generate My App
+                    </button>
+                  </div>
+                </div>
               </motion.div>
             )}
 

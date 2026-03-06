@@ -10,6 +10,107 @@ export interface RequirementsState {
 /** @deprecated Use RequirementsState instead */
 export type RequirementsObject = RequirementsState;
 
+/* ─── Style Personalization ─── */
+export type ColorSchemeId = 'ocean' | 'sunset' | 'forest' | 'royal' | 'coral' | 'slate';
+export type SidebarStyle = 'gradient' | 'solid' | 'dark';
+export type LayoutDensity = 'comfortable' | 'compact';
+
+export interface ColorScheme {
+  id: ColorSchemeId;
+  name: string;
+  primary: string;
+  secondary: string;
+  accent: string;
+  gradient: string;
+  sidebarText: string;
+}
+
+export interface StylePreferences {
+  colorScheme: ColorSchemeId;
+  sidebarStyle: SidebarStyle;
+  density: LayoutDensity;
+  brandIcon: string;
+  fontStyle: 'modern' | 'classic' | 'rounded';
+}
+
+export const COLOR_SCHEMES: Record<ColorSchemeId, ColorScheme> = {
+  ocean: {
+    id: 'ocean',
+    name: 'Ocean Blue',
+    primary: '#4e73df',
+    secondary: '#224abe',
+    accent: '#36b9cc',
+    gradient: 'linear-gradient(180deg, #4e73df 10%, #224abe 100%)',
+    sidebarText: '#fff',
+  },
+  sunset: {
+    id: 'sunset',
+    name: 'Sunset',
+    primary: '#e74a3b',
+    secondary: '#be2617',
+    accent: '#f6c23e',
+    gradient: 'linear-gradient(180deg, #e74a3b 10%, #be2617 100%)',
+    sidebarText: '#fff',
+  },
+  forest: {
+    id: 'forest',
+    name: 'Forest',
+    primary: '#1cc88a',
+    secondary: '#13855c',
+    accent: '#36b9cc',
+    gradient: 'linear-gradient(180deg, #1cc88a 10%, #13855c 100%)',
+    sidebarText: '#fff',
+  },
+  royal: {
+    id: 'royal',
+    name: 'Royal Purple',
+    primary: '#6f42c1',
+    secondary: '#4e2d8e',
+    accent: '#e83e8c',
+    gradient: 'linear-gradient(180deg, #6f42c1 10%, #4e2d8e 100%)',
+    sidebarText: '#fff',
+  },
+  coral: {
+    id: 'coral',
+    name: 'Coral',
+    primary: '#fd7e14',
+    secondary: '#c85a00',
+    accent: '#e83e8c',
+    gradient: 'linear-gradient(180deg, #fd7e14 10%, #c85a00 100%)',
+    sidebarText: '#fff',
+  },
+  slate: {
+    id: 'slate',
+    name: 'Slate',
+    primary: '#5a5c69',
+    secondary: '#3a3b45',
+    accent: '#4e73df',
+    gradient: 'linear-gradient(180deg, #5a5c69 10%, #3a3b45 100%)',
+    sidebarText: '#fff',
+  },
+};
+
+export const BRAND_ICONS = [
+  { id: 'laugh-wink', icon: 'fas fa-laugh-wink', label: 'Default' },
+  { id: 'rocket', icon: 'fas fa-rocket', label: 'Rocket' },
+  { id: 'bolt', icon: 'fas fa-bolt', label: 'Bolt' },
+  { id: 'gem', icon: 'fas fa-gem', label: 'Gem' },
+  { id: 'fire', icon: 'fas fa-fire', label: 'Fire' },
+  { id: 'star', icon: 'fas fa-star', label: 'Star' },
+  { id: 'heart', icon: 'fas fa-heart', label: 'Heart' },
+  { id: 'crown', icon: 'fas fa-crown', label: 'Crown' },
+  { id: 'leaf', icon: 'fas fa-leaf', label: 'Leaf' },
+  { id: 'shield-alt', icon: 'fas fa-shield-alt', label: 'Shield' },
+];
+
+export const defaultStylePreferences = (): StylePreferences => ({
+  colorScheme: 'ocean',
+  sidebarStyle: 'gradient',
+  density: 'comfortable',
+  brandIcon: 'laugh-wink',
+  fontStyle: 'modern',
+});
+
 export interface ConversationMessage {
   role: 'user' | 'ai';
   content: string;
@@ -261,8 +362,11 @@ export function processUserMessage(
 export function generateAppHTML(
   requirements: RequirementsState,
   appName: string,
-  mode: 'simple' | 'expert'
+  mode: 'simple' | 'expert',
+  stylePrefs?: StylePreferences
 ): string {
+  const prefs = stylePrefs || defaultStylePreferences();
+  const scheme = COLOR_SCHEMES[prefs.colorScheme];
   const name = appName || 'My App';
   const hasAuth = requirements.auth.confidence > 50;
   const hasData = requirements.data.confidence > 50;
@@ -270,30 +374,127 @@ export function generateAppHTML(
   const entities = requirements.data.value?.match(/Entities:\s*(.+)/)?.[1]?.split(',').map((e) => e.trim()) || ['Records'];
   const primaryEntity = entities[0] || 'Record';
 
-  const sampleData = Array.from({ length: 5 }, (_, i) => ({
-    id: i + 1,
-    name: `${primaryEntity} ${i + 1}`,
-    status: ['Active', 'Pending', 'Completed', 'Active', 'Pending'][i],
-    date: `2026-0${i + 1}-${10 + i}`,
-    value: `$${(Math.random() * 500 + 50).toFixed(2)}`,
-  }));
+  // Domain-aware column/data definitions based on entity type
+  const entityLower = primaryEntity.toLowerCase();
+  type ColDef = { key: string; label: string; gen: (i: number) => string };
+  let columns: ColDef[];
+  if (entityLower.match(/meal|food|nutrition|calori/)) {
+    columns = [
+      { key: 'name', label: 'Meal', gen: (i) => ['Grilled Chicken Salad', 'Oatmeal Bowl', 'Pasta Carbonara', 'Veggie Wrap', 'Salmon Rice'][i] },
+      { key: 'calories', label: 'Calories', gen: (i) => `${[420, 310, 580, 350, 490][i]}` },
+      { key: 'category', label: 'Category', gen: (i) => ['Lunch', 'Breakfast', 'Dinner', 'Lunch', 'Dinner'][i] },
+      { key: 'date', label: 'Date', gen: (i) => `2026-01-${10 + i}` },
+    ];
+  } else if (entityLower.match(/expense|budget|spending/)) {
+    columns = [
+      { key: 'description', label: 'Description', gen: (i) => ['Office Supplies', 'Software License', 'Travel', 'Lunch Meeting', 'Cloud Hosting'][i] },
+      { key: 'amount', label: 'Amount', gen: (i) => `$${[45.99, 199.00, 320.50, 67.80, 149.99][i]}` },
+      { key: 'category', label: 'Category', gen: (i) => ['Supplies', 'Software', 'Travel', 'Meals', 'Infrastructure'][i] },
+      { key: 'date', label: 'Date', gen: (i) => `2026-01-${10 + i}` },
+    ];
+  } else if (entityLower.match(/task|todo/)) {
+    columns = [
+      { key: 'title', label: 'Task', gen: (i) => ['Design mockups', 'API integration', 'Write tests', 'Deploy staging', 'Code review'][i] },
+      { key: 'priority', label: 'Priority', gen: (i) => ['High', 'Medium', 'High', 'Low', 'Medium'][i] },
+      { key: 'assignee', label: 'Assignee', gen: (i) => ['Alice', 'Bob', 'Carol', 'Dave', 'Eve'][i] },
+      { key: 'status', label: 'Status', gen: (i) => ['Active', 'Pending', 'Completed', 'Active', 'Pending'][i] },
+    ];
+  } else if (entityLower.match(/appointment|booking|schedule/)) {
+    columns = [
+      { key: 'client', label: 'Client', gen: (i) => ['John Smith', 'Jane Doe', 'Mike Chen', 'Sara Ali', 'Tom Lee'][i] },
+      { key: 'service', label: 'Service', gen: (i) => ['Consultation', 'Follow-up', 'Check-up', 'Treatment', 'Consultation'][i] },
+      { key: 'time', label: 'Time', gen: (i) => ['09:00 AM', '10:30 AM', '01:00 PM', '02:30 PM', '04:00 PM'][i] },
+      { key: 'status', label: 'Status', gen: (i) => ['Confirmed', 'Pending', 'Completed', 'Confirmed', 'Pending'][i] },
+    ];
+  } else if (entityLower.match(/product|item|inventory/)) {
+    columns = [
+      { key: 'name', label: 'Product', gen: (i) => ['Widget A', 'Gadget B', 'Part C', 'Module D', 'Kit E'][i] },
+      { key: 'sku', label: 'SKU', gen: (i) => `SKU-${1000 + i}` },
+      { key: 'qty', label: 'Stock', gen: (i) => `${[150, 42, 300, 18, 85][i]}` },
+      { key: 'price', label: 'Price', gen: (i) => `$${[29.99, 59.99, 12.50, 149.00, 89.95][i]}` },
+    ];
+  } else if (entityLower.match(/customer|client/)) {
+    columns = [
+      { key: 'name', label: 'Name', gen: (i) => ['John Smith', 'Jane Doe', 'Mike Chen', 'Sara Ali', 'Tom Lee'][i] },
+      { key: 'email', label: 'Email', gen: (i) => [`john@example.com`, `jane@example.com`, `mike@example.com`, `sara@example.com`, `tom@example.com`][i] },
+      { key: 'phone', label: 'Phone', gen: (i) => `555-010${i}` },
+      { key: 'status', label: 'Status', gen: (i) => ['Active', 'Active', 'Pending', 'Active', 'Inactive'][i] },
+    ];
+  } else if (entityLower.match(/order/)) {
+    columns = [
+      { key: 'customer', label: 'Customer', gen: (i) => ['John Smith', 'Jane Doe', 'Mike Chen', 'Sara Ali', 'Tom Lee'][i] },
+      { key: 'total', label: 'Total', gen: (i) => `$${[125.00, 89.50, 245.99, 67.00, 310.75][i]}` },
+      { key: 'items', label: 'Items', gen: (i) => `${[3, 1, 5, 2, 4][i]}` },
+      { key: 'status', label: 'Status', gen: (i) => ['Shipped', 'Processing', 'Delivered', 'Processing', 'Shipped'][i] },
+    ];
+  } else if (entityLower.match(/student|grade|attendance/)) {
+    columns = [
+      { key: 'name', label: 'Student', gen: (i) => ['Alice Johnson', 'Bob Williams', 'Carol Davis', 'David Brown', 'Eve Wilson'][i] },
+      { key: 'grade', label: 'Grade', gen: (i) => ['A', 'B+', 'A-', 'B', 'A'][i] },
+      { key: 'course', label: 'Course', gen: (i) => ['Math 101', 'Physics', 'Chemistry', 'English', 'History'][i] },
+      { key: 'status', label: 'Status', gen: (i) => ['Enrolled', 'Enrolled', 'Enrolled', 'Probation', 'Enrolled'][i] },
+    ];
+  } else if (entityLower.match(/habit|workout|exercise/)) {
+    columns = [
+      { key: 'name', label: 'Activity', gen: (i) => ['Morning Run', 'Meditation', 'Reading', 'Gym Session', 'Journaling'][i] },
+      { key: 'frequency', label: 'Frequency', gen: (i) => ['Daily', 'Daily', 'Daily', '3x/week', 'Daily'][i] },
+      { key: 'streak', label: 'Streak', gen: (i) => `${[12, 30, 7, 5, 21][i]} days` },
+      { key: 'status', label: 'Status', gen: (i) => ['Active', 'Active', 'Completed', 'Active', 'Pending'][i] },
+    ];
+  } else {
+    columns = [
+      { key: 'name', label: primaryEntity + ' Name', gen: (i) => `${primaryEntity} ${i + 1}` },
+      { key: 'description', label: 'Description', gen: (i) => ['Initial setup', 'In progress', 'Under review', 'Approved', 'Finalized'][i] },
+      { key: 'date', label: 'Date', gen: (i) => `2026-01-${10 + i}` },
+      { key: 'status', label: 'Status', gen: (i) => ['Active', 'Pending', 'Completed', 'Active', 'Pending'][i] },
+    ];
+  }
 
+  const sampleData = Array.from({ length: 5 }, (_, i) => {
+    const row: Record<string, string | number> = { id: i + 1 };
+    for (const col of columns) row[col.key] = col.gen(i);
+    return row;
+  });
+
+  const statusBadge = (val: string) => {
+    const s = val.toLowerCase();
+    if (s.match(/active|confirmed|shipped|enrolled|delivered/)) return 'primary';
+    if (s.match(/pending|processing|probation/)) return 'warning';
+    if (s.match(/completed|finalized|approved/)) return 'success';
+    if (s.match(/inactive|cancelled/)) return 'danger';
+    return 'secondary';
+  };
+
+  const hasStatusCol = columns.some((c) => c.key === 'status');
+
+  const tableHeaders = columns.map((c) => `<th>${c.label}</th>`).join('');
   const tableRows = sampleData
-    .map(
-      (row) => `
+    .map((row) => {
+      const cells = columns.map((c) => {
+        const val = String(row[c.key]);
+        if (c.key === 'status') return `<td><span class="badge badge-${statusBadge(val)}">${val}</span></td>`;
+        return `<td>${val}</td>`;
+      }).join('');
+      return `
                     <tr>
                       <td>${row.id}</td>
-                      <td>${row.name}</td>
-                      <td><span class="badge badge-${row.status === 'Active' ? 'primary' : row.status === 'Pending' ? 'warning' : 'success'}">${row.status}</span></td>
-                      <td>${row.date}</td>
-                      <td>${row.value}</td>
+                      ${cells}
                       <td>
                         <button class="btn btn-sm btn-info" onclick="editRecord(${row.id})"><i class="fas fa-edit"></i></button>
                         <button class="btn btn-sm btn-danger" onclick="deleteRecord(${row.id})"><i class="fas fa-trash"></i></button>
                       </td>
-                    </tr>`
-    )
+                    </tr>`;
+    })
     .join('');
+
+  // Build modal form fields from columns
+  const modalFields = columns.map((c) => {
+    if (c.key === 'status') {
+      const opts = [...new Set(sampleData.map((r) => String(r.status)))].map((o) => `<option>${o}</option>`).join('');
+      return `<div class="form-group"><label>${c.label}</label><select class="form-control" id="field-${c.key}">${opts}</select></div>`;
+    }
+    return `<div class="form-group"><label>${c.label}</label><input type="text" class="form-control" id="field-${c.key}" placeholder="Enter ${c.label.toLowerCase()}" required></div>`;
+  }).join('\n            ');
 
   const dashboardCards = hasDashboard
     ? `
@@ -346,8 +547,58 @@ export function generateAppHTML(
     : '';
 
   const sidebarNavItems = entities.map((e, i) =>
-    `<li class="nav-item${i === 0 ? ' active' : ''}"><a class="nav-link" href="#" onclick="showView('list', this)"><i class="fas fa-fw fa-table"></i><span>${e}s</span></a></li>`
+    `<li class="nav-item${i === 0 ? ' active' : ''}"><a class="nav-link" href="javascript:void(0)" onclick="showView('list', this); return false;"><i class="fas fa-fw fa-table"></i><span>${e}s</span></a></li>`
   ).join('\n          ');
+
+  // Build column keys array for JS
+  const colKeys = JSON.stringify(columns.map((c) => c.key));
+
+  // ─── Style Personalization CSS ───
+  const sidebarBg = prefs.sidebarStyle === 'gradient'
+    ? `background: ${scheme.gradient} !important;`
+    : prefs.sidebarStyle === 'dark'
+      ? `background: #1a1a2e !important;`
+      : `background: ${scheme.primary} !important;`;
+
+  const fontImport = prefs.fontStyle === 'rounded'
+    ? `@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap');`
+    : prefs.fontStyle === 'classic'
+      ? `@import url('https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,400;0,700;1,400&family=Source+Sans+3:wght@400;600;700&display=swap');`
+      : `@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');`;
+
+  const fontFamily = prefs.fontStyle === 'rounded'
+    ? `'Nunito', sans-serif`
+    : prefs.fontStyle === 'classic'
+      ? `'Source Sans 3', 'Merriweather', serif`
+      : `'Inter', -apple-system, BlinkMacSystemFont, sans-serif`;
+
+  const densityCss = prefs.density === 'compact'
+    ? `.card-body { padding: .75rem; } .table td, .table th { padding: .4rem .75rem; } .mb-4 { margin-bottom: 1rem !important; }`
+    : '';
+
+  const brandIconClass = `fas fa-${prefs.brandIcon}`;
+
+  const customStyleBlock = `
+  <style>
+    ${fontImport}
+    body, .sidebar .nav-link, .sidebar-brand-text, .h1,.h2,.h3,.h4,.h5,.h6,h1,h2,h3,h4,h5,h6 {
+      font-family: ${fontFamily} !important;
+    }
+    #accordionSidebar { ${sidebarBg} }
+    .btn-primary { background-color: ${scheme.primary} !important; border-color: ${scheme.primary} !important; }
+    .btn-primary:hover { background-color: ${scheme.secondary} !important; border-color: ${scheme.secondary} !important; }
+    .text-primary { color: ${scheme.primary} !important; }
+    .border-left-primary { border-left-color: ${scheme.primary} !important; }
+    .border-left-info { border-left-color: ${scheme.accent} !important; }
+    a.nav-link.active, .nav-item.active .nav-link { font-weight: 700; }
+    .badge-primary { background-color: ${scheme.primary}; }
+    .sidebar-brand-icon { color: ${scheme.sidebarText}; }
+    .card { border-radius: .55rem; transition: box-shadow .15s ease; }
+    .card:hover { box-shadow: 0 .25rem 1rem rgba(0,0,0,.12) !important; }
+    .btn { border-radius: .35rem; transition: all .15s ease; }
+    .btn:hover { transform: translateY(-1px); }
+    ${densityCss}
+  </style>`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -359,23 +610,24 @@ export function generateAppHTML(
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/startbootstrap-sb-admin-2@4.1.3/css/sb-admin-2.min.css" rel="stylesheet">
   <link href="https://cdn.datatables.net/1.13.4/css/dataTables.bootstrap4.min.css" rel="stylesheet">
+  ${customStyleBlock}
 </head>
 <body id="page-top">
   ${authPage}
 
   <div id="wrapper"${hasAuth ? ' style="display:none"' : ''}>
     <!-- Sidebar -->
-    <ul class="navbar-nav bg-gradient-primary sidebar sidebar-dark accordion" id="accordionSidebar">
-      <a class="sidebar-brand d-flex align-items-center justify-content-center" href="#">
-        <div class="sidebar-brand-icon rotate-n-15"><i class="fas fa-laugh-wink"></i></div>
+    <ul class="navbar-nav sidebar sidebar-dark accordion" id="accordionSidebar">
+      <a class="sidebar-brand d-flex align-items-center justify-content-center" href="javascript:void(0)">
+        <div class="sidebar-brand-icon rotate-n-15"><i class="${brandIconClass}"></i></div>
         <div class="sidebar-brand-text mx-3">${name}</div>
       </a>
       <hr class="sidebar-divider my-0">
-      <li class="nav-item active"><a class="nav-link" href="#" onclick="showView('dashboard', this)"><i class="fas fa-fw fa-tachometer-alt"></i><span>Dashboard</span></a></li>
+      <li class="nav-item active"><a class="nav-link" href="javascript:void(0)" onclick="showView('dashboard', this); return false;"><i class="fas fa-fw fa-tachometer-alt"></i><span>Dashboard</span></a></li>
       <hr class="sidebar-divider">
       <div class="sidebar-heading">Management</div>
           ${sidebarNavItems}
-      <li class="nav-item"><a class="nav-link" href="#" onclick="showView('settings', this)"><i class="fas fa-fw fa-cog"></i><span>Settings</span></a></li>
+      <li class="nav-item"><a class="nav-link" href="javascript:void(0)" onclick="showView('settings', this); return false;"><i class="fas fa-fw fa-cog"></i><span>Settings</span></a></li>
     </ul>
 
     <!-- Content Wrapper -->
@@ -386,7 +638,7 @@ export function generateAppHTML(
           <button id="sidebarToggleTop" class="btn btn-link d-md-none rounded-circle mr-3"><i class="fa fa-bars"></i></button>
           <ul class="navbar-nav ml-auto">
             <li class="nav-item dropdown no-arrow">
-              <a class="nav-link dropdown-toggle" href="#" role="button" data-toggle="dropdown"><span class="mr-2 d-none d-lg-inline text-gray-600 small">User</span><i class="fas fa-user-circle fa-fw"></i></a>
+              <a class="nav-link dropdown-toggle" href="javascript:void(0)" role="button" data-toggle="dropdown"><span class="mr-2 d-none d-lg-inline text-gray-600 small">User</span><i class="fas fa-user-circle fa-fw"></i></a>
             </li>
           </ul>
         </nav>
@@ -416,10 +668,7 @@ export function generateAppHTML(
                     <thead>
                       <tr>
                         <th>#</th>
-                        <th>Name</th>
-                        <th>Status</th>
-                        <th>Date</th>
-                        <th>Value</th>
+                        ${tableHeaders}
                         <th>Actions</th>
                       </tr>
                     </thead>
@@ -460,9 +709,7 @@ export function generateAppHTML(
         <div class="modal-header"><h5 class="modal-title">Add New ${primaryEntity}</h5><button type="button" class="close" data-dismiss="modal">&times;</button></div>
         <div class="modal-body">
           <form id="entityForm">
-            <div class="form-group"><label>Name</label><input type="text" class="form-control" id="new-name" placeholder="${primaryEntity} name" required></div>
-            <div class="form-group"><label>Status</label><select class="form-control" id="new-status"><option>Active</option><option>Pending</option><option>Completed</option></select></div>
-            <div class="form-group"><label>Value</label><input type="text" class="form-control" id="new-value" placeholder="$0.00"></div>
+            ${modalFields}
           </form>
         </div>
         <div class="modal-footer">
@@ -482,6 +729,7 @@ export function generateAppHTML(
   <script src="https://cdn.datatables.net/1.13.4/js/dataTables.bootstrap4.min.js"></script>
   <script>
     var records = ${JSON.stringify(sampleData)};
+    var colKeys = ${colKeys};
     var nextId = records.length + 1;
 
     function handleLogin(e) {
@@ -498,13 +746,27 @@ export function generateAppHTML(
       document.getElementById('view-settings').style.display = view === 'settings' ? 'block' : 'none';
       var titles = { list: '${primaryEntity}s', dashboard: 'Dashboard', settings: 'Settings' };
       document.getElementById('page-title').textContent = titles[view] || 'Dashboard';
+      return false;
+    }
+
+    function statusBadge(val) {
+      var s = (val || '').toLowerCase();
+      if (s.match(/active|confirmed|shipped|enrolled|delivered/)) return 'primary';
+      if (s.match(/pending|processing|probation/)) return 'warning';
+      if (s.match(/completed|finalized|approved/)) return 'success';
+      if (s.match(/inactive|cancelled/)) return 'danger';
+      return 'secondary';
     }
 
     function renderTable() {
       var tbody = document.getElementById('records-tbody');
       tbody.innerHTML = records.map(function(row) {
-        var badgeClass = row.status === 'Active' ? 'primary' : row.status === 'Pending' ? 'warning' : 'success';
-        return '<tr><td>' + row.id + '</td><td>' + row.name + '</td><td><span class="badge badge-' + badgeClass + '">' + row.status + '</span></td><td>' + row.date + '</td><td>' + row.value + '</td><td><button class="btn btn-sm btn-info" onclick="editRecord(' + row.id + ')"><i class="fas fa-edit"></i></button> <button class="btn btn-sm btn-danger" onclick="deleteRecord(' + row.id + ')"><i class="fas fa-trash"></i></button></td></tr>';
+        var cells = colKeys.map(function(k) {
+          var val = row[k] || '';
+          if (k === 'status') return '<td><span class="badge badge-' + statusBadge(val) + '">' + val + '</span></td>';
+          return '<td>' + val + '</td>';
+        }).join('');
+        return '<tr><td>' + row.id + '</td>' + cells + '<td><button class="btn btn-sm btn-info" onclick="editRecord(' + row.id + ')"><i class="fas fa-edit"></i></button> <button class="btn btn-sm btn-danger" onclick="deleteRecord(' + row.id + ')"><i class="fas fa-trash"></i></button></td></tr>';
       }).join('');
       document.getElementById('record-count').textContent = records.length + ' records';
       var tc = document.getElementById('totalCount');
@@ -514,11 +776,14 @@ export function generateAppHTML(
     function openModal() { $('#addEditModal').modal('show'); }
 
     function handleAddRecord() {
-      var n = document.getElementById('new-name').value;
-      var s = document.getElementById('new-status').value;
-      var v = document.getElementById('new-value').value || '$0.00';
+      var newRec = { id: nextId++ };
+      colKeys.forEach(function(k) {
+        var el = document.getElementById('field-' + k);
+        if (el) newRec[k] = el.value;
+      });
       var today = new Date().toISOString().split('T')[0];
-      records.push({ id: nextId++, name: n, status: s, date: today, value: v });
+      if (!newRec.date) newRec.date = today;
+      records.push(newRec);
       renderTable();
       $('#addEditModal').modal('hide');
       document.getElementById('entityForm').reset();

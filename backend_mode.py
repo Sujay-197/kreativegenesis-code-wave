@@ -402,17 +402,17 @@ _SB_ADMIN_SKELETON = """
   <div id="wrapper">
     <!-- Sidebar -->
     <ul class="navbar-nav bg-gradient-primary sidebar sidebar-dark accordion" id="accordionSidebar">
-      <a class="sidebar-brand d-flex align-items-center justify-content-center" href="#">
+      <a class="sidebar-brand d-flex align-items-center justify-content-center" href="javascript:void(0)">
         <div class="sidebar-brand-icon rotate-n-15"><i class="fas fa-laugh-wink"></i></div>
         <div class="sidebar-brand-text mx-3">{{APP_TITLE}}</div>
       </a>
       <hr class="sidebar-divider my-0">
-      <li class="nav-item active"><a class="nav-link" href="#"><i class="fas fa-fw fa-tachometer-alt"></i><span>Dashboard</span></a></li>
+      <li class="nav-item active"><a class="nav-link" href="javascript:void(0)"><i class="fas fa-fw fa-tachometer-alt"></i><span>Dashboard</span></a></li>
       <hr class="sidebar-divider">
       <div class="sidebar-heading">Management</div>
       <!-- Add more nav items for each entity/page -->
-      <li class="nav-item"><a class="nav-link" href="#"><i class="fas fa-fw fa-table"></i><span>Records</span></a></li>
-      <li class="nav-item"><a class="nav-link" href="#"><i class="fas fa-fw fa-chart-area"></i><span>Reports</span></a></li>
+      <li class="nav-item"><a class="nav-link" href="javascript:void(0)"><i class="fas fa-fw fa-table"></i><span>Records</span></a></li>
+      <li class="nav-item"><a class="nav-link" href="javascript:void(0)"><i class="fas fa-fw fa-chart-area"></i><span>Reports</span></a></li>
     </ul>
     <!-- Content Wrapper -->
     <div id="content-wrapper" class="d-flex flex-column">
@@ -422,7 +422,7 @@ _SB_ADMIN_SKELETON = """
           <button id="sidebarToggleTop" class="btn btn-link d-md-none rounded-circle mr-3"><i class="fa fa-bars"></i></button>
           <ul class="navbar-nav ml-auto">
             <li class="nav-item dropdown no-arrow">
-              <a class="nav-link dropdown-toggle" href="#" role="button" data-toggle="dropdown"><span class="mr-2 d-none d-lg-inline text-gray-600 small">User</span><i class="fas fa-user-circle fa-fw"></i></a>
+              <a class="nav-link dropdown-toggle" href="javascript:void(0)" role="button" data-toggle="dropdown"><span class="mr-2 d-none d-lg-inline text-gray-600 small">User</span><i class="fas fa-user-circle fa-fw"></i></a>
             </li>
           </ul>
         </nav>
@@ -491,12 +491,14 @@ Integrations: {integrations}
 2. Replace {{{{APP_TITLE}}}} with the app name derived from the requirements.
 3. Sidebar nav items: replace with pages/entities relevant to the app (Dashboard, each entity list, Reports, etc.).
 4. Summary cards (.border-left-primary etc.): show key metrics (totals, counts, amounts) for the app's domain.
-5. DataTable: customize columns for the app's primary entity. Include Add/Edit/Delete buttons.
+5. DataTable: customize columns to match the app's domain entities (e.g. for expenses: Description, Amount, Category, Date — NOT generic Name/Status/Value). Include Add/Edit/Delete buttons.
 6. Charts: area chart for trends over time, pie chart for category breakdowns — both relevant to the app.
-7. Modal (#addEditModal): add form fields matching the app's primary entity.
+7. Modal (#addEditModal): add form fields that match the entity's actual properties (matching the table columns).
 8. ALL data persistence via localStorage. Full CRUD operations.
 9. Use ONLY these CDN links (already in skeleton) — do NOT add other CSS frameworks or dark-theme CSS.
 10. The app must look like an SB Admin 2 dashboard — white background, gradient-primary blue sidebar, light topbar, card shadows.
+11. NEVER use href="#" — always use href="javascript:void(0)" with onclick handlers. Plain href="#" causes navigation issues.
+12. Populate sample data with realistic domain-specific values (real names, realistic amounts, proper categories). Never use generic placeholder text like "Record 1", "Record 2".
 
 ## OUTPUT FORMAT — exactly three code blocks:
 

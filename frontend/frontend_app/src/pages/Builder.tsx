@@ -44,6 +44,7 @@ const toConfidenceValue = (value?: string | null): number => {
 const mapSpecToRequirements = (spec?: Record<string, string>): RequirementsState => {
   if (!spec) return initialRequirements();
   return {
+    problem: { label: 'Problem / Domain', value: spec.problem_statement_or_domain ?? null, confidence: toConfidenceValue(spec.problem_statement_or_domain) },
     auth: { label: 'Auth & Users', value: spec.auth_and_users ?? null, confidence: toConfidenceValue(spec.auth_and_users) },
     data: { label: 'Data & Storage', value: spec.data_and_storage ?? null, confidence: toConfidenceValue(spec.data_and_storage) },
     ui: { label: 'UI Complexity', value: spec.ui_complexity ?? null, confidence: toConfidenceValue(spec.ui_complexity) },
@@ -170,6 +171,7 @@ export default function Builder() {
             const ro = data.requirements_object;
             const isFilled = (v?: string | null) => !!v && v.toLowerCase() !== 'not yet discussed';
             updatedRequirements = {
+              problem: { label: 'Problem / Domain', value: isFilled(ro.problem_statement_or_domain) ? ro.problem_statement_or_domain : null, confidence: isFilled(ro.problem_statement_or_domain) ? 80 : 0 },
               auth: { label: 'Auth & Users', value: isFilled(ro.auth_and_users) ? ro.auth_and_users : null, confidence: isFilled(ro.auth_and_users) ? 75 : 0 },
               data: { label: 'Data & Storage', value: isFilled(ro.data_and_storage) ? ro.data_and_storage : null, confidence: isFilled(ro.data_and_storage) ? 75 : 0 },
               ui: { label: 'UI Complexity', value: isFilled(ro.ui_complexity) ? ro.ui_complexity : null, confidence: isFilled(ro.ui_complexity) ? 70 : 0 },
@@ -262,7 +264,7 @@ export default function Builder() {
           : {
             session_id: sessionIdRef.current,
             requirements_object: {
-              problem_statement_or_domain: appName || 'Not yet discussed',
+              problem_statement_or_domain: requirements.problem.value || appName || 'Not yet discussed',
               auth_and_users: requirements.auth.value ?? '',
               data_and_storage: requirements.data.value ?? '',
               ui_complexity: requirements.ui.value ?? '',

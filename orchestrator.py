@@ -20,6 +20,7 @@ from planner import generate_plan
 from generator import generate_all_files
 from project_builder import (
     create_project_structure,
+    copy_template_assets,
     write_all_files,
     save_plan,
     get_project_dir,
@@ -177,6 +178,9 @@ async def _execute_pipeline(job_id: str, prompt: str, provider: str) -> None:
         # Step 3: Create directory structure
         _update_job_status(job_id, "building", "Creating project structure...")
         create_project_structure(job_id, plan)
+
+        # Step 3b: Copy SB Admin 2 template assets (vendor, css, js, img)
+        copy_template_assets(job_id, plan)
 
         # Step 4: Generate code for all files
         _update_job_status(job_id, "generating", "Generating code files...")

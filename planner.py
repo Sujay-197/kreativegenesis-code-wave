@@ -55,9 +55,12 @@ You MUST output ONLY valid JSON matching this EXACT structure (no markdown, no e
   ]
 }
 
+IMPORTANT: The SB Admin 2 template's vendor/, css/, js/, and img/ directories are AUTOMATICALLY copied into the frontend/ folder. Do NOT include them in the files list. Only list files you want GENERATED (custom HTML, custom CSS, custom JS, backend code).
+
 GUIDELINES for file planning:
 - backend/ folder: main.py, database.py, models.py (or split by domain), routes/ folder with domain-separated route files
 - frontend/ folder: index.html (main dashboard adapting SB Admin 2 layout), custom.css (app-specific styles on top of sb-admin-2.css), js/ folder with feature-separated JS files (e.g. app.js, api.js, components.js)
+- Frontend HTML files MUST reference template assets via relative paths: vendor/jquery/jquery.min.js, css/sb-admin-2.min.css, js/sb-admin-2.min.js, etc.
 - Root: requirements.txt
 - Keep file count reasonable (5-15 files typically). Don't over-engineer.
 - Each file description must clearly state what that file does — this will be used as the generation prompt.
@@ -126,10 +129,10 @@ def _generate_plan_sync(prompt: str, provider: str) -> dict:
     if provider == "groq":
         client = _get_groq_client()
         response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model="llama-3.3-70b-versatile",
             messages=messages,
             temperature=0.3,
-            max_tokens=2000,
+            max_tokens=3000,
         )
         raw = response.choices[0].message.content or ""
     else:

@@ -7,10 +7,14 @@ code files to the correct locations on disk.
 
 import os
 import re
+import shutil
 from pathlib import Path
 
 # Base directory where all generated apps are stored
 GENERATED_APPS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "generated_apps")
+
+# Template directory with SB Admin 2 assets
+TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "template")
 
 
 def _sanitize_path(path: str) -> str:
@@ -131,6 +135,40 @@ def save_plan(job_id: str, plan: dict) -> str:
         json.dump(plan, f, indent=2)
 
     return plan_path
+
+
+def copy_template_assets(job_id: str, plan: dict) -> None:
+    """
+    Copy SB Admin 2 template assets (vendor, css, js, img) into the generated
+    project's frontend directory so that HTML files' relative references work.
+
+    Detects the frontend folder from the plan's file list (e.g. 'frontend/').
+    If no explicit frontend folder exists, copies assets to the project root.
+    """
+    if not os.path.isdir(TEMPLATE_DIR):
+        return
+
+    project_dir = get_project_dir(job_id)
+
+    # Figure out where frontend files live in this plan
+    frontend_prefix = ""
+    for f in plan.get("files", []):
+        path = f["path"] if isinstance(f, dict) else f
+        if path.endswith(".html"):
+            parts = path.replace("\\", "/").split("/")
+            if len(parts) > 1:
+                frontend_prefix = parts[0]
+            break
+
+    dest_base = os.path.join(project_dir, frontend_prefix) if frontend_prefix else project_dir
+
+    # Asset directories to copy from template
+    ASSET_DIRS = ["vendor", "css", "js", "img"]
+    for dirname in ASSET_DIRS:
+        src = os.path.join(TEMPLATE_DIR, dirname)
+        dst = os.path.join(dest_base, dirname)
+        if os.path.isdir(src) and not os.path.isdir(dst):
+            shutil.copytree(src, dst)
 
 
 def get_project_tree(job_id: str) -> list[str]:

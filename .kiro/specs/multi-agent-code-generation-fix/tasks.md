@@ -1,0 +1,119 @@
+# Implementation Plan
+
+- [-] 1. Write bug condition exploration test
+  - **Property 1: Fault Condition** - Template Assets Missing in Generated Projects
+  - **CRITICAL**: This test MUST FAIL on unfixed code - failure confirms the bug exists
+  - **DO NOT attempt to fix the test or the code when it fails**
+  - **NOTE**: This test encodes the expected behavior - it will validate the fix when it passes after implementation
+  - **GOAL**: Surface counterexamples that demonstrate the bugs exist
+  - **Scoped PBT Approach**: Scope the property to concrete failing case - generate a simple web app using SB Admin 2 template
+  - Test that isBugCondition(job) where job.plan.frontend == "SB Admin 2 (Bootstrap 4)" results in:
+    - Template assets (vendor/, css/, js/, img/) are copied to generated project directory
+    - All referenced assets in HTML files exist at correct paths
+    - Architecture plan includes template_assets metadata field
+    - Template context provided to LLM is not excessively truncated (>6000 chars per file)
+  - Run test on UNFIXED code
+  - **EXPECTED OUTCOME**: Test FAILS (this is correct - it proves the bugs exist)
+  - Document counterexamples found:
+    - Missing vendor/bootstrap/ directory in generated_apps/job_xxx/
+    - HTML files reference non-existent asset paths
+    - Architecture plan JSON lacks template_assets field
+    - Template context shows truncation markers in logs
+  - Mark task complete when test is written, run, and failures are documented
+  - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
+
+- [~] 2. Write preservation property tests (BEFORE implementing fix)
+  - **Property 2: Preservation** - Non-Template Generation Unchanged
+  - **IMPORTANT**: Follow observation-first methodology
+  - Observe behavior on UNFIXED code for non-buggy inputs (backend-only projects, non-template files)
+  - Test cases to observe:
+    - Generate "REST API with database" project, capture generated files list
+    - Generate project, capture requirements.txt content
+    - Test path traversal attempts (../../etc/passwd), verify rejection
+    - Generate project, capture job status transitions (pending → planning → generating → building → completed)
+  - Write property-based tests capturing observed behavior patterns:
+    - For all backend-only projects (NOT isBugCondition), generated files match baseline
+    - For all projects, requirements.txt generation is unchanged
+    - For all path operations, security checks remain unchanged
+    - For all jobs, status lifecycle remains unchanged
+  - Property-based testing generates many test cases for stronger guarantees
+  - Run tests on UNFIXED code
+  - **EXPECTED OUTCOME**: Tests PASS (this confirms baseline behavior to preserve)
+  - Mark task complete when tests are written, run, and passing on unfixed code
+  - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6_
+
+- [~] 3. Fix for multi-agent code generation template handling
+
+  - [~] 3.1 Add template asset copying to project_builder.py
+    - Create helper function `_copy_template_assets(job_id: str, asset_list: list[str])`
+    - Takes job_id and list of asset paths to copy (e.g., ["vendor/", "css/", "js/", "img/"])
+    - Resolves source paths from TEMPLATE_DIR
+    - Copies to project directory using shutil.copytree() with dirs_exist_ok=True
+    - Handles errors gracefully (log warnings if template files missing)
+    - Modify `create_project_structure()` to call `_copy_template_assets()` after creating directories
+    - Check if plan contains `template_assets` metadata field
+    - If present and non-empty, copy specified folders from template/ to project directory
+    - Skip copying if template_assets is empty (backend-only projects)
+    - _Bug_Condition: isBugCondition(input) where input.plan.frontend == "SB Admin 2 (Bootstrap 4)" AND templateAssetsExist("template/") AND NOT templateAssetsCopied(input.job_id)_
+    - _Expected_Behavior: directory_exists(project_dir + "/vendor/bootstrap/") AND directory_exists(project_dir + "/css/") AND all referenced assets exist_
+    - _Preservation: Backend Python file generation, non-template file generation, path sanitization unchanged_
+    - _Requirements: 2.1, 2.4, 3.2, 3.3_
+
+  - [~] 3.2 Reduce template context truncation in generator.py
+    - Modify `_build_asset_context()` function
+    - Increase individual file limit from 6000 to 12000 characters
+    - Increase total context limit from 32000 to 64000 characters
+    - Update truncation logic: `if len(content) > 12000: content = content[:12000] + "\n... (truncated)"`
+    - Update total limit check: `MAX_TOTAL = 64000`
+    - Prioritize structural files (index.html, sb-admin-2.css) over demo files when approaching limit
+    - _Bug_Condition: File generation where file type is HTML/CSS/JS and requires template context_
+    - _Expected_Behavior: Template context provided to LLM is sufficient (>6000 chars per file) without excessive truncation_
+    - _Preservation: LLM provider selection, markdown fence stripping, backend file generation unchanged_
+    - _Requirements: 2.2, 2.5, 3.2_
+
+  - [~] 3.3 Add template metadata to architecture plans in planner.py
+    - Update PLANNER_SYSTEM_PROMPT to include template_assets field in example JSON output
+    - Add instruction: "For web applications using SB Admin 2 template, include 'template_assets' field with list of folders to copy (e.g., ['vendor/', 'css/', 'js/', 'img/'])"
+    - Modify `_generate_plan_sync()` to post-process plan
+    - After parsing LLM output, check if plan contains template_assets field
+    - If frontend is "SB Admin 2 (Bootstrap 4)" and template_assets is missing, add default: `["vendor/", "css/", "js/", "img/"]`
+    - If frontend is not template-based, ensure template_assets is empty list or omitted
+    - Add validation for template_assets field (must be list of strings, no directory traversal)
+    - _Bug_Condition: Architecture plan generated for web app using SB Admin 2 template_
+    - _Expected_Behavior: Plan includes template_assets field specifying which folders to copy_
+    - _Preservation: Architecture plan validation, required fields, file list format unchanged_
+    - _Requirements: 2.3, 3.1, 3.3_
+
+  - [~] 3.4 Verify bug condition exploration test now passes
+    - **Property 1: Expected Behavior** - Template Assets Present in Generated Projects
+    - **IMPORTANT**: Re-run the SAME test from task 1 - do NOT write a new test
+    - The test from task 1 encodes the expected behavior
+    - When this test passes, it confirms the expected behavior is satisfied
+    - Run bug condition exploration test from step 1
+    - **EXPECTED OUTCOME**: Test PASSES (confirms bugs are fixed)
+    - Verify:
+      - Template assets (vendor/, css/, js/, img/) exist in generated project
+      - All referenced assets in HTML files resolve correctly
+      - Architecture plan includes template_assets field
+      - Template context is not excessively truncated
+    - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
+
+  - [~] 3.5 Verify preservation tests still pass
+    - **Property 2: Preservation** - Non-Template Generation Unchanged
+    - **IMPORTANT**: Re-run the SAME tests from task 2 - do NOT write new tests
+    - Run preservation property tests from step 2
+    - **EXPECTED OUTCOME**: Tests PASS (confirms no regressions)
+    - Verify:
+      - Backend-only projects generate identical files as before
+      - Requirements.txt generation unchanged
+      - Path sanitization security checks unchanged
+      - Job status lifecycle unchanged
+    - Confirm all tests still pass after fix (no regressions)
+    - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6_
+
+- [~] 4. Checkpoint - Ensure all tests pass
+  - Run full test suite (exploration test + preservation tests)
+  - Verify all tests pass
+  - Test generated web application loads correctly in browser
+  - Verify all asset references resolve (no 404 errors)
+  - Ask user if questions arise or additional validation needed

@@ -626,10 +626,9 @@ def _hf_token_check() -> str:
     return hf_token
 
 
-def call_tailored_companion(history: list, current_message: str) -> str:
+def call_tailored_companion(history: list, current_message: str, current_spec: dict) -> str:
     """Tailored Mode: Get conversational question via HF Inference API."""
     try:
-        # conversation can continue using a general Qwen instruct model
         API_URL = "https://api-inference.huggingface.co/models/Qwen/Qwen2.5-7B-Instruct"
         headers = {"Authorization": f"Bearer {_hf_token_check()}"}
 
@@ -638,8 +637,10 @@ def call_tailored_companion(history: list, current_message: str) -> str:
             for m in history[:-1]
         )
 
+        tailored_prompt = build_tailored_llama_prompt(current_spec)
+
         prompt = (
-            f"[INST] {TAILORED_MODE_COMPANION_PROMPT}\n\n"
+            f"[INST] {tailored_prompt}\n\n"
             f"Conversation so far:\n{conversation}\n\n"
             f"Latest user message: {current_message} [/INST]"
         )
@@ -695,6 +696,7 @@ def call_tailored_analyzer(history: list, current_spec: dict) -> dict:
     except Exception as e:
         print(f"Tailored Analyzer Error: {e}")
         return {
+            "problem_statement_or_domain": "Not yet discussed",
             "auth_and_users": "Not yet discussed",
             "data_and_storage": "Not yet discussed",
             "ui_complexity": "Not yet discussed",
@@ -898,7 +900,7 @@ async def tailored_mode_chat(request: ChatRequest):
     confidence_score = analyzed.pop("confidence_score", 0.0)
 
     # Merge: preserve previously gathered info
-    for key in ["auth_and_users", "data_and_storage", "ui_complexity", "business_logic", "integrations"]:
+    for key in ["problem_statement_or_domain", "auth_and_users", "data_and_storage", "ui_complexity", "business_logic", "integrations"]:
         new_val = analyzed.get(key, "Not yet discussed")
         old_val = session["technical_spec"].get(key, "Not yet discussed")
         if (not new_val or new_val == "Not yet discussed") and old_val and old_val != "Not yet discussed":

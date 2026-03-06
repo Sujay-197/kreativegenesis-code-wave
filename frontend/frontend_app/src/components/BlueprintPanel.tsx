@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Users, Database, Layout, GitBranch, Plug, CheckCircle2, Circle } from 'lucide-react';
+import { Target, Users, Database, Layout, GitBranch, Plug, CheckCircle2, Circle } from 'lucide-react';
 
 // Re-export the canonical type from aiEngine so existing consumers still work
 export type { RequirementsState } from '../lib/aiEngine';
@@ -15,6 +15,7 @@ interface BlueprintPanelProps {
 }
 
 const dimensionConfig = [
+  { key: 'problem', icon: Target, label: 'Problem / Domain' },
   { key: 'auth', icon: Users, label: 'Auth & Users' },
   { key: 'data', icon: Database, label: 'Data & Storage' },
   { key: 'ui', icon: Layout, label: 'UI Complexity' },

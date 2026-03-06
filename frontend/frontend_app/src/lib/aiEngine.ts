@@ -1,4 +1,5 @@
 export interface RequirementsState {
+  problem: { label: string; value: string | null; confidence: number };
   auth: { label: string; value: string | null; confidence: number };
   data: { label: string; value: string | null; confidence: number };
   ui: { label: string; value: string | null; confidence: number };
@@ -15,6 +16,7 @@ export interface ConversationMessage {
 }
 
 export const initialRequirements = (): RequirementsState => ({
+  problem: { label: 'Problem / Domain', value: null, confidence: 0 },
   auth: { label: 'Auth & Users', value: null, confidence: 0 },
   data: { label: 'Data & Storage', value: null, confidence: 0 },
   ui: { label: 'UI Complexity', value: null, confidence: 0 },
@@ -55,6 +57,23 @@ function inferRequirements(history: ConversationMessage[]): RequirementsState {
     .join(' ');
 
   const req: RequirementsState = initialRequirements();
+
+  // Problem / Domain inference
+  if (allText.match(/tracker|track|manage|system|app for|tool for|platform for|build a|need a|want a/)) {
+    const domainHints: string[] = [];
+    if (allText.match(/calori|food|meal|nutrition|diet/)) domainHints.push('nutrition/diet tracking');
+    if (allText.match(/inventory|stock|warehouse/)) domainHints.push('inventory management');
+    if (allText.match(/appointment|booking|schedule|salon|clinic/)) domainHints.push('appointment scheduling');
+    if (allText.match(/expense|budget|spending|finance/)) domainHints.push('expense/budget tracking');
+    if (allText.match(/task|todo|to-do|project/)) domainHints.push('task/project management');
+    if (allText.match(/student|school|grade|attendance/)) domainHints.push('student records management');
+    if (allText.match(/order|shop|store|ecommerce/)) domainHints.push('order management');
+    req.problem = {
+      label: 'Problem / Domain',
+      value: domainHints.length > 0 ? domainHints.join(', ') : 'Custom application',
+      confidence: domainHints.length > 0 ? 80 : 50,
+    };
+  }
 
   if (allText.match(/login|sign.?in|user|account|auth|password|role|admin|staff|customer/)) {
     req.auth = {
@@ -163,6 +182,12 @@ function generateNextQuestion(
   }
 
   const allText = userMessages.map((m) => m.content.toLowerCase()).join(' ');
+
+  if (requirements.problem.confidence < 50 && count >= 1) {
+    return mode === 'simple'
+      ? 'Could you tell me more about what problem this app is meant to solve, and who it\'s for?'
+      : 'What is the core domain and problem this system addresses?';
+  }
 
   if (requirements.auth.confidence < 50 && count >= 1) {
     return mode === 'simple'

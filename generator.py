@@ -213,7 +213,9 @@ def _generate_file_code_sync(file_info: dict, plan: dict, provider: str) -> str:
         if template_ctx:
             template_section = (
                 "TEMPLATE REFERENCE (SB Admin 2 — Bootstrap 4 dashboard template).\n"
-                "Use this as your starting base. Adapt the template structure, don't start from scratch:\n\n"
+                "The template vendor/, css/, js/, and img/ folders are ALREADY copied into the project.\n"
+                "Use relative paths to reference them (e.g. vendor/jquery/jquery.min.js).\n"
+                "ADAPT the template structure — sidebar, topbar, card-based content — don't start from scratch:\n\n"
                 + template_ctx
             )
 
@@ -238,10 +240,10 @@ def _generate_file_code_sync(file_info: dict, plan: dict, provider: str) -> str:
     if provider == "groq":
         client = _get_groq_client()
         response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model="llama-3.3-70b-versatile",
             messages=messages,
             temperature=0.2,
-            max_tokens=4000,
+            max_tokens=8000,
         )
         raw = response.choices[0].message.content or ""
     else:
@@ -250,7 +252,7 @@ def _generate_file_code_sync(file_info: dict, plan: dict, provider: str) -> str:
             model="Qwen/Qwen2.5-Coder-32B-Instruct",
             messages=messages,
             temperature=0.2,
-            max_tokens=4096,
+            max_tokens=8000,
         )
         raw = response.choices[0].message.content or ""
 

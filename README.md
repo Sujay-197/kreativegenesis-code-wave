@@ -1,8 +1,10 @@
 # Kreative Genesis 2026
 
 ## Team Code Wave
-AI and Automation
-No Code AI 
+
+##AI and Automation
+
+##No Code AI 
 
 # InNovus AI — Conversational No-Code App Builder
 

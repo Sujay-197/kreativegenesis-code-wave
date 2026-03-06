@@ -354,27 +354,27 @@ export function generateAppHTML(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-  <title>\${name}</title>
+  <title>${name}</title>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/startbootstrap-sb-admin-2@4.1.3/css/sb-admin-2.min.css" rel="stylesheet">
   <link href="https://cdn.datatables.net/1.13.4/css/dataTables.bootstrap4.min.css" rel="stylesheet">
 </head>
 <body id="page-top">
-  \${authPage}
+  ${authPage}
 
-  <div id="wrapper"\${hasAuth ? ' style="display:none"' : ''}>
+  <div id="wrapper"${hasAuth ? ' style="display:none"' : ''}>
     <!-- Sidebar -->
     <ul class="navbar-nav bg-gradient-primary sidebar sidebar-dark accordion" id="accordionSidebar">
       <a class="sidebar-brand d-flex align-items-center justify-content-center" href="#">
         <div class="sidebar-brand-icon rotate-n-15"><i class="fas fa-laugh-wink"></i></div>
-        <div class="sidebar-brand-text mx-3">\${name}</div>
+        <div class="sidebar-brand-text mx-3">${name}</div>
       </a>
       <hr class="sidebar-divider my-0">
       <li class="nav-item active"><a class="nav-link" href="#" onclick="showView('dashboard', this)"><i class="fas fa-fw fa-tachometer-alt"></i><span>Dashboard</span></a></li>
       <hr class="sidebar-divider">
       <div class="sidebar-heading">Management</div>
-          \${sidebarNavItems}
+          ${sidebarNavItems}
       <li class="nav-item"><a class="nav-link" href="#" onclick="showView('settings', this)"><i class="fas fa-fw fa-cog"></i><span>Settings</span></a></li>
     </ul>
 
@@ -395,20 +395,20 @@ export function generateAppHTML(
         <div class="container-fluid">
           <div class="d-sm-flex align-items-center justify-content-between mb-4">
             <h1 class="h3 mb-0 text-gray-800" id="page-title">Dashboard</h1>
-            <button class="d-none d-sm-inline-block btn btn-sm btn-primary shadow-sm" onclick="openModal()"><i class="fas fa-plus fa-sm text-white-50"></i> Add \${primaryEntity}</button>
+            <button class="d-none d-sm-inline-block btn btn-sm btn-primary shadow-sm" onclick="openModal()"><i class="fas fa-plus fa-sm text-white-50"></i> Add ${primaryEntity}</button>
           </div>
 
           <!-- Dashboard View -->
           <div id="view-dashboard">
-            \${dashboardCards}
+            ${dashboardCards}
           </div>
 
           <!-- List View -->
           <div id="view-list">
             <div class="card shadow mb-4">
               <div class="card-header py-3 d-flex justify-content-between align-items-center">
-                <h6 class="m-0 font-weight-bold text-primary">All \${primaryEntity}s</h6>
-                <span class="text-muted small" id="record-count">\${sampleData.length} records</span>
+                <h6 class="m-0 font-weight-bold text-primary">All ${primaryEntity}s</h6>
+                <span class="text-muted small" id="record-count">${sampleData.length} records</span>
               </div>
               <div class="card-body">
                 <div class="table-responsive">
@@ -424,7 +424,7 @@ export function generateAppHTML(
                       </tr>
                     </thead>
                     <tbody id="records-tbody">
-                    \${tableRows}
+                    ${tableRows}
                     </tbody>
                   </table>
                 </div>
@@ -437,7 +437,7 @@ export function generateAppHTML(
             <div class="card shadow mb-4">
               <div class="card-header py-3"><h6 class="m-0 font-weight-bold text-primary">Settings</h6></div>
               <div class="card-body">
-                <div class="form-group"><label>App Name</label><input type="text" class="form-control" value="\${name}"></div>
+                <div class="form-group"><label>App Name</label><input type="text" class="form-control" value="${name}"></div>
                 <div class="form-group"><label>Default Status</label><select class="form-control"><option>Active</option><option>Pending</option></select></div>
                 <button class="btn btn-primary" onclick="showToast('Settings saved!')">Save Settings</button>
               </div>
@@ -457,10 +457,10 @@ export function generateAppHTML(
   <div class="modal fade" id="addEditModal" tabindex="-1">
     <div class="modal-dialog">
       <div class="modal-content">
-        <div class="modal-header"><h5 class="modal-title">Add New \${primaryEntity}</h5><button type="button" class="close" data-dismiss="modal">&times;</button></div>
+        <div class="modal-header"><h5 class="modal-title">Add New ${primaryEntity}</h5><button type="button" class="close" data-dismiss="modal">&times;</button></div>
         <div class="modal-body">
           <form id="entityForm">
-            <div class="form-group"><label>Name</label><input type="text" class="form-control" id="new-name" placeholder="\${primaryEntity} name" required></div>
+            <div class="form-group"><label>Name</label><input type="text" class="form-control" id="new-name" placeholder="${primaryEntity} name" required></div>
             <div class="form-group"><label>Status</label><select class="form-control" id="new-status"><option>Active</option><option>Pending</option><option>Completed</option></select></div>
             <div class="form-group"><label>Value</label><input type="text" class="form-control" id="new-value" placeholder="$0.00"></div>
           </form>
@@ -481,7 +481,7 @@ export function generateAppHTML(
   <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
   <script src="https://cdn.datatables.net/1.13.4/js/dataTables.bootstrap4.min.js"></script>
   <script>
-    var records = \${JSON.stringify(sampleData)};
+    var records = ${JSON.stringify(sampleData)};
     var nextId = records.length + 1;
 
     function handleLogin(e) {
@@ -496,7 +496,7 @@ export function generateAppHTML(
       document.getElementById('view-dashboard').style.display = view === 'dashboard' ? 'block' : 'none';
       document.getElementById('view-list').style.display = view === 'list' ? 'block' : 'none';
       document.getElementById('view-settings').style.display = view === 'settings' ? 'block' : 'none';
-      var titles = { list: '\${primaryEntity}s', dashboard: 'Dashboard', settings: 'Settings' };
+      var titles = { list: '${primaryEntity}s', dashboard: 'Dashboard', settings: 'Settings' };
       document.getElementById('page-title').textContent = titles[view] || 'Dashboard';
     }
 
@@ -522,7 +522,7 @@ export function generateAppHTML(
       renderTable();
       $('#addEditModal').modal('hide');
       document.getElementById('entityForm').reset();
-      showToast('\${primaryEntity} added successfully!');
+      showToast('${primaryEntity} added successfully!');
     }
 
     function editRecord(id) { showToast('Edit mode for record #' + id); }

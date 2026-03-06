@@ -270,9 +270,6 @@ export function generateAppHTML(
   const entities = requirements.data.value?.match(/Entities:\s*(.+)/)?.[1]?.split(',').map((e) => e.trim()) || ['Records'];
   const primaryEntity = entities[0] || 'Record';
 
-  const accentColor = mode === 'simple' ? '#6366f1' : '#10b981';
-  const accentHover = mode === 'simple' ? '#4f46e5' : '#059669';
-
   const sampleData = Array.from({ length: 5 }, (_, i) => ({
     id: i + 1,
     name: `${primaryEntity} ${i + 1}`,
@@ -284,290 +281,248 @@ export function generateAppHTML(
   const tableRows = sampleData
     .map(
       (row) => `
-    <tr>
-      <td>${row.id}</td>
-      <td>${row.name}</td>
-      <td><span class="badge badge-${row.status.toLowerCase()}">${row.status}</span></td>
-      <td>${row.date}</td>
-      <td>${row.value}</td>
-      <td>
-        <button class="btn-sm" onclick="editRecord(${row.id})">Edit</button>
-        <button class="btn-sm btn-danger" onclick="deleteRecord(${row.id})">Delete</button>
-      </td>
-    </tr>`
+                    <tr>
+                      <td>${row.id}</td>
+                      <td>${row.name}</td>
+                      <td><span class="badge badge-${row.status === 'Active' ? 'primary' : row.status === 'Pending' ? 'warning' : 'success'}">${row.status}</span></td>
+                      <td>${row.date}</td>
+                      <td>${row.value}</td>
+                      <td>
+                        <button class="btn btn-sm btn-info" onclick="editRecord(${row.id})"><i class="fas fa-edit"></i></button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteRecord(${row.id})"><i class="fas fa-trash"></i></button>
+                      </td>
+                    </tr>`
     )
     .join('');
 
   const dashboardCards = hasDashboard
     ? `
-    <div class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-label">Total ${primaryEntity}s</div>
-        <div class="stat-value">247</div>
-        <div class="stat-change positive">+12% this month</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Active</div>
-        <div class="stat-value">183</div>
-        <div class="stat-change positive">+8% this month</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Pending</div>
-        <div class="stat-value">41</div>
-        <div class="stat-change neutral">No change</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Completed</div>
-        <div class="stat-value">23</div>
-        <div class="stat-change positive">+3 today</div>
-      </div>
-    </div>`
-    : '';
+              <div class="row">
+                <div class="col-xl-3 col-md-6 mb-4">
+                  <div class="card border-left-primary shadow h-100 py-2">
+                    <div class="card-body"><div class="row no-gutters align-items-center"><div class="col mr-2"><div class="text-xs font-weight-bold text-primary text-uppercase mb-1">Total ${primaryEntity}s</div><div class="h5 mb-0 font-weight-bold text-gray-800">247</div></div><div class="col-auto"><i class="fas fa-clipboard-list fa-2x text-gray-300"></i></div></div></div>
+                  </div>
+                </div>
+                <div class="col-xl-3 col-md-6 mb-4">
+                  <div class="card border-left-success shadow h-100 py-2">
+                    <div class="card-body"><div class="row no-gutters align-items-center"><div class="col mr-2"><div class="text-xs font-weight-bold text-success text-uppercase mb-1">Active</div><div class="h5 mb-0 font-weight-bold text-gray-800">183</div></div><div class="col-auto"><i class="fas fa-check-circle fa-2x text-gray-300"></i></div></div></div>
+                  </div>
+                </div>
+                <div class="col-xl-3 col-md-6 mb-4">
+                  <div class="card border-left-warning shadow h-100 py-2">
+                    <div class="card-body"><div class="row no-gutters align-items-center"><div class="col mr-2"><div class="text-xs font-weight-bold text-warning text-uppercase mb-1">Pending</div><div class="h5 mb-0 font-weight-bold text-gray-800">41</div></div><div class="col-auto"><i class="fas fa-clock fa-2x text-gray-300"></i></div></div></div>
+                  </div>
+                </div>
+                <div class="col-xl-3 col-md-6 mb-4">
+                  <div class="card border-left-info shadow h-100 py-2">
+                    <div class="card-body"><div class="row no-gutters align-items-center"><div class="col mr-2"><div class="text-xs font-weight-bold text-info text-uppercase mb-1">Completed</div><div class="h5 mb-0 font-weight-bold text-gray-800">23</div></div><div class="col-auto"><i class="fas fa-flag-checkered fa-2x text-gray-300"></i></div></div></div>
+                  </div>
+                </div>
+              </div>`
+    : `
+              <div class="row">
+                <div class="col-xl-3 col-md-6 mb-4">
+                  <div class="card border-left-primary shadow h-100 py-2">
+                    <div class="card-body"><div class="row no-gutters align-items-center"><div class="col mr-2"><div class="text-xs font-weight-bold text-primary text-uppercase mb-1">Total</div><div class="h5 mb-0 font-weight-bold text-gray-800" id="totalCount">5</div></div><div class="col-auto"><i class="fas fa-calendar fa-2x text-gray-300"></i></div></div></div>
+                  </div>
+                </div>
+              </div>`;
 
-  const authSection = hasAuth
+  const authPage = hasAuth
     ? `
-    <div id="auth-screen" class="auth-screen">
-      <div class="auth-card">
-        <h2>Sign In to ${name}</h2>
+  <div id="auth-screen" style="position:fixed;inset:0;background:#f8f9fc;display:flex;align-items:center;justify-content:center;z-index:9999;">
+    <div class="card shadow" style="width:400px;">
+      <div class="card-body p-5">
+        <div class="text-center mb-4"><h1 class="h4 text-gray-900">Sign In to ${name}</h1></div>
         <form onsubmit="handleLogin(event)">
-          <div class="form-group">
-            <label>Email</label>
-            <input type="email" id="email" placeholder="you@example.com" required />
-          </div>
-          <div class="form-group">
-            <label>Password</label>
-            <input type="password" id="password" placeholder="••••••••" required />
-          </div>
-          <button type="submit" class="btn-primary full-width">Sign In</button>
+          <div class="form-group"><input type="email" class="form-control form-control-user" id="email" placeholder="Email Address" required></div>
+          <div class="form-group"><input type="password" class="form-control form-control-user" id="password" placeholder="Password" required></div>
+          <button type="submit" class="btn btn-primary btn-user btn-block">Login</button>
         </form>
-        <p class="auth-hint">Demo: any email + password works</p>
+        <hr><div class="text-center"><small class="text-muted">Demo: any email + password works</small></div>
       </div>
-    </div>`
+    </div>
+  </div>`
     : '';
 
-  return `<!DOCTYPE html>
+  const sidebarNavItems = entities.map((e, i) =>
+    `<li class="nav-item${i === 0 ? ' active' : ''}"><a class="nav-link" href="#" onclick="showView('list', this)"><i class="fas fa-fw fa-table"></i><span>${e}s</span></a></li>`
+  ).join('\n          ');
+
+  return \`<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${name}</title>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    :root {
-      --accent: ${accentColor};
-      --accent-hover: ${accentHover};
-      --bg: #0f172a;
-      --surface: #1e293b;
-      --surface2: #334155;
-      --border: #334155;
-      --text: #f1f5f9;
-      --muted: #94a3b8;
-      --danger: #ef4444;
-    }
-    body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
-    .app-layout { display: flex; min-height: 100vh; }
-    .sidebar { width: 240px; background: var(--surface); border-right: 1px solid var(--border); padding: 24px 0; flex-shrink: 0; }
-    .sidebar-brand { padding: 0 20px 24px; font-size: 18px; font-weight: 700; color: var(--accent); border-bottom: 1px solid var(--border); margin-bottom: 16px; }
-    .sidebar-nav { list-style: none; }
-    .sidebar-nav li a { display: block; padding: 10px 20px; color: var(--muted); text-decoration: none; font-size: 14px; transition: all 0.2s; border-left: 3px solid transparent; }
-    .sidebar-nav li a:hover, .sidebar-nav li a.active { color: var(--text); background: rgba(255,255,255,0.05); border-left-color: var(--accent); }
-    .main-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-    .topbar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; }
-    .topbar h1 { font-size: 20px; font-weight: 600; }
-    .topbar-actions { display: flex; gap: 12px; align-items: center; }
-    .content-area { flex: 1; padding: 24px; overflow-y: auto; }
-    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 24px; }
-    .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
-    .stat-label { font-size: 12px; color: var(--muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; }
-    .stat-value { font-size: 28px; font-weight: 700; margin-bottom: 4px; }
-    .stat-change { font-size: 12px; }
-    .stat-change.positive { color: #22c55e; }
-    .stat-change.neutral { color: var(--muted); }
-    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
-    .card-header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
-    .card-header h2 { font-size: 16px; font-weight: 600; }
-    .card-body { padding: 0; }
-    table { width: 100%; border-collapse: collapse; font-size: 14px; }
-    th { padding: 12px 16px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); border-bottom: 1px solid var(--border); background: rgba(255,255,255,0.02); }
-    td { padding: 12px 16px; border-bottom: 1px solid var(--border); color: var(--text); }
-    tr:last-child td { border-bottom: none; }
-    tr:hover td { background: rgba(255,255,255,0.03); }
-    .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 11px; font-weight: 600; }
-    .badge-active { background: rgba(34,197,94,0.15); color: #22c55e; }
-    .badge-pending { background: rgba(234,179,8,0.15); color: #eab308; }
-    .badge-completed { background: rgba(99,102,241,0.15); color: #818cf8; }
-    .btn-primary { background: var(--accent); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
-    .btn-primary:hover { background: var(--accent-hover); transform: scale(1.02); }
-    .btn-primary.full-width { width: 100%; }
-    .btn-sm { background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 4px 10px; border-radius: 6px; font-size: 12px; cursor: pointer; transition: all 0.2s; margin-right: 4px; }
-    .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
-    .btn-danger { border-color: var(--danger); color: var(--danger); }
-    .btn-danger:hover { background: rgba(239,68,68,0.1); }
-    .form-group { margin-bottom: 16px; }
-    .form-group label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; color: var(--muted); }
-    .form-group input, .form-group select, .form-group textarea { width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; color: var(--text); font-size: 14px; outline: none; transition: border-color 0.2s; }
-    .form-group input:focus, .form-group select:focus, .form-group textarea:focus { border-color: var(--accent); }
-    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; align-items: center; justify-content: center; }
-    .modal-overlay.open { display: flex; }
-    .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 28px; width: 100%; max-width: 480px; }
-    .modal h3 { font-size: 18px; font-weight: 600; margin-bottom: 20px; }
-    .modal-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px; }
-    .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 10px 20px; border-radius: 8px; font-size: 14px; cursor: pointer; transition: all 0.2s; }
-    .btn-ghost:hover { border-color: var(--muted); color: var(--text); }
-    .auth-screen { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; z-index: 200; }
-    .auth-card { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 40px; width: 100%; max-width: 400px; }
-    .auth-card h2 { font-size: 24px; font-weight: 700; margin-bottom: 28px; text-align: center; }
-    .auth-hint { text-align: center; font-size: 12px; color: var(--muted); margin-top: 16px; }
-    .toast { position: fixed; bottom: 24px; right: 24px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 20px; font-size: 14px; z-index: 999; animation: slideIn 0.3s ease; }
-    @keyframes slideIn { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-    @media (max-width: 768px) { .sidebar { display: none; } }
-  </style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <title>\${name}</title>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/startbootstrap-sb-admin-2@4.1.3/css/sb-admin-2.min.css" rel="stylesheet">
+  <link href="https://cdn.datatables.net/1.13.4/css/dataTables.bootstrap4.min.css" rel="stylesheet">
 </head>
-<body>
-  ${authSection}
+<body id="page-top">
+  \${authPage}
 
-  <div class="app-layout" id="app" ${hasAuth ? 'style="display:none"' : ''}>
-    <aside class="sidebar">
-      <div class="sidebar-brand">${name}</div>
-      <ul class="sidebar-nav">
-        <li><a href="#" class="active" onclick="showView('list', this)">All ${primaryEntity}s</a></li>
-        ${hasDashboard ? `<li><a href="#" onclick="showView('dashboard', this)">Dashboard</a></li>` : ''}
-        ${entities.slice(1).map((e) => `<li><a href="#" onclick="showView('list', this)">${e}s</a></li>`).join('')}
-        <li><a href="#" onclick="showView('settings', this)">Settings</a></li>
-      </ul>
-    </aside>
+  <div id="wrapper"\${hasAuth ? ' style="display:none"' : ''}>
+    <!-- Sidebar -->
+    <ul class="navbar-nav bg-gradient-primary sidebar sidebar-dark accordion" id="accordionSidebar">
+      <a class="sidebar-brand d-flex align-items-center justify-content-center" href="#">
+        <div class="sidebar-brand-icon rotate-n-15"><i class="fas fa-laugh-wink"></i></div>
+        <div class="sidebar-brand-text mx-3">\${name}</div>
+      </a>
+      <hr class="sidebar-divider my-0">
+      <li class="nav-item active"><a class="nav-link" href="#" onclick="showView('dashboard', this)"><i class="fas fa-fw fa-tachometer-alt"></i><span>Dashboard</span></a></li>
+      <hr class="sidebar-divider">
+      <div class="sidebar-heading">Management</div>
+          \${sidebarNavItems}
+      <li class="nav-item"><a class="nav-link" href="#" onclick="showView('settings', this)"><i class="fas fa-fw fa-cog"></i><span>Settings</span></a></li>
+    </ul>
 
-    <div class="main-content">
-      <div class="topbar">
-        <h1 id="page-title">${primaryEntity}s</h1>
-        <div class="topbar-actions">
-          <button class="btn-primary" onclick="openModal()">+ Add ${primaryEntity}</button>
+    <!-- Content Wrapper -->
+    <div id="content-wrapper" class="d-flex flex-column">
+      <div id="content">
+        <!-- Topbar -->
+        <nav class="navbar navbar-expand navbar-light bg-white topbar mb-4 static-top shadow">
+          <button id="sidebarToggleTop" class="btn btn-link d-md-none rounded-circle mr-3"><i class="fa fa-bars"></i></button>
+          <ul class="navbar-nav ml-auto">
+            <li class="nav-item dropdown no-arrow">
+              <a class="nav-link dropdown-toggle" href="#" role="button" data-toggle="dropdown"><span class="mr-2 d-none d-lg-inline text-gray-600 small">User</span><i class="fas fa-user-circle fa-fw"></i></a>
+            </li>
+          </ul>
+        </nav>
+
+        <!-- Begin Page Content -->
+        <div class="container-fluid">
+          <div class="d-sm-flex align-items-center justify-content-between mb-4">
+            <h1 class="h3 mb-0 text-gray-800" id="page-title">Dashboard</h1>
+            <button class="d-none d-sm-inline-block btn btn-sm btn-primary shadow-sm" onclick="openModal()"><i class="fas fa-plus fa-sm text-white-50"></i> Add \${primaryEntity}</button>
+          </div>
+
+          <!-- Dashboard View -->
+          <div id="view-dashboard">
+            \${dashboardCards}
+          </div>
+
+          <!-- List View -->
+          <div id="view-list">
+            <div class="card shadow mb-4">
+              <div class="card-header py-3 d-flex justify-content-between align-items-center">
+                <h6 class="m-0 font-weight-bold text-primary">All \${primaryEntity}s</h6>
+                <span class="text-muted small" id="record-count">\${sampleData.length} records</span>
+              </div>
+              <div class="card-body">
+                <div class="table-responsive">
+                  <table class="table table-bordered" id="dataTable" width="100%" cellspacing="0">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Name</th>
+                        <th>Status</th>
+                        <th>Date</th>
+                        <th>Value</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody id="records-tbody">
+                    \${tableRows}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Settings View -->
+          <div id="view-settings" style="display:none">
+            <div class="card shadow mb-4">
+              <div class="card-header py-3"><h6 class="m-0 font-weight-bold text-primary">Settings</h6></div>
+              <div class="card-body">
+                <div class="form-group"><label>App Name</label><input type="text" class="form-control" value="\${name}"></div>
+                <div class="form-group"><label>Default Status</label><select class="form-control"><option>Active</option><option>Pending</option></select></div>
+                <button class="btn btn-primary" onclick="showToast('Settings saved!')">Save Settings</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div class="content-area">
-        <div id="view-dashboard" style="display:none">
-          ${dashboardCards}
-        </div>
+      <!-- Footer -->
+      <footer class="sticky-footer bg-white">
+        <div class="container my-auto"><div class="copyright text-center my-auto"><span>AppForge AI &copy; 2026</span></div></div>
+      </footer>
+    </div>
+  </div>
 
-        <div id="view-list">
-          <div class="card">
-            <div class="card-header">
-              <h2>All ${primaryEntity}s</h2>
-              <span id="record-count" style="font-size:13px;color:var(--muted)">5 records</span>
-            </div>
-            <div class="card-body">
-              <table>
-                <thead>
-                  <tr>
-                    <th>#</th>
-                    <th>Name</th>
-                    <th>Status</th>
-                    <th>Date</th>
-                    <th>Value</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody id="records-tbody">
-                  ${tableRows}
-                </tbody>
-              </table>
-            </div>
-          </div>
+  <!-- Add/Edit Modal -->
+  <div class="modal fade" id="addEditModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title">Add New \${primaryEntity}</h5><button type="button" class="close" data-dismiss="modal">&times;</button></div>
+        <div class="modal-body">
+          <form id="entityForm">
+            <div class="form-group"><label>Name</label><input type="text" class="form-control" id="new-name" placeholder="\${primaryEntity} name" required></div>
+            <div class="form-group"><label>Status</label><select class="form-control" id="new-status"><option>Active</option><option>Pending</option><option>Completed</option></select></div>
+            <div class="form-group"><label>Value</label><input type="text" class="form-control" id="new-value" placeholder="$0.00"></div>
+          </form>
         </div>
-
-        <div id="view-settings" style="display:none">
-          <div class="card">
-            <div class="card-header"><h2>Settings</h2></div>
-            <div class="card-body" style="padding:24px">
-              <div class="form-group">
-                <label>App Name</label>
-                <input type="text" value="${name}" />
-              </div>
-              <div class="form-group">
-                <label>Default Status</label>
-                <select><option>Active</option><option>Pending</option></select>
-              </div>
-              <button class="btn-primary" onclick="showToast('Settings saved!')">Save Settings</button>
-            </div>
-          </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+          <button class="btn btn-primary" onclick="handleAddRecord()">Save</button>
         </div>
       </div>
     </div>
   </div>
 
-  <div class="modal-overlay" id="modal">
-    <div class="modal">
-      <h3>Add New ${primaryEntity}</h3>
-      <form onsubmit="handleAddRecord(event)">
-        <div class="form-group">
-          <label>Name</label>
-          <input type="text" id="new-name" placeholder="${primaryEntity} name" required />
-        </div>
-        <div class="form-group">
-          <label>Status</label>
-          <select id="new-status">
-            <option>Active</option>
-            <option>Pending</option>
-            <option>Completed</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Value</label>
-          <input type="text" id="new-value" placeholder="$0.00" />
-        </div>
-        <div class="modal-actions">
-          <button type="button" class="btn-ghost" onclick="closeModal()">Cancel</button>
-          <button type="submit" class="btn-primary">Add ${primaryEntity}</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
+  <script src="https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jquery.easing@1.4.1/jquery.easing.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/startbootstrap-sb-admin-2@4.1.3/js/sb-admin-2.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@2.9.4/dist/Chart.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.4/js/dataTables.bootstrap4.min.js"></script>
   <script>
-    var records = ${JSON.stringify(sampleData)};
+    var records = \${JSON.stringify(sampleData)};
     var nextId = records.length + 1;
 
     function handleLogin(e) {
       e.preventDefault();
       document.getElementById('auth-screen').style.display = 'none';
-      document.getElementById('app').style.display = 'flex';
+      document.getElementById('wrapper').style.display = '';
     }
 
     function showView(view, el) {
-      document.querySelectorAll('.sidebar-nav a').forEach(function(a) { a.classList.remove('active'); });
-      if (el) el.classList.add('active');
+      document.querySelectorAll('#accordionSidebar .nav-item').forEach(function(li) { li.classList.remove('active'); });
+      if (el) el.closest('.nav-item').classList.add('active');
+      document.getElementById('view-dashboard').style.display = view === 'dashboard' ? 'block' : 'none';
       document.getElementById('view-list').style.display = view === 'list' ? 'block' : 'none';
-      var dash = document.getElementById('view-dashboard');
-      if (dash) dash.style.display = view === 'dashboard' ? 'block' : 'none';
-      var settings = document.getElementById('view-settings');
-      if (settings) settings.style.display = view === 'settings' ? 'block' : 'none';
-      var titles = { list: '${primaryEntity}s', dashboard: 'Dashboard', settings: 'Settings' };
-      document.getElementById('page-title').textContent = titles[view] || '${primaryEntity}s';
+      document.getElementById('view-settings').style.display = view === 'settings' ? 'block' : 'none';
+      var titles = { list: '\${primaryEntity}s', dashboard: 'Dashboard', settings: 'Settings' };
+      document.getElementById('page-title').textContent = titles[view] || 'Dashboard';
     }
 
     function renderTable() {
       var tbody = document.getElementById('records-tbody');
       tbody.innerHTML = records.map(function(row) {
-        return '<tr><td>' + row.id + '</td><td>' + row.name + '</td><td><span class="badge badge-' + row.status.toLowerCase() + '">' + row.status + '</span></td><td>' + row.date + '</td><td>' + row.value + '</td><td><button class="btn-sm" onclick="editRecord(' + row.id + ')">Edit</button><button class="btn-sm btn-danger" onclick="deleteRecord(' + row.id + ')">Delete</button></td></tr>';
+        var badgeClass = row.status === 'Active' ? 'primary' : row.status === 'Pending' ? 'warning' : 'success';
+        return '<tr><td>' + row.id + '</td><td>' + row.name + '</td><td><span class="badge badge-' + badgeClass + '">' + row.status + '</span></td><td>' + row.date + '</td><td>' + row.value + '</td><td><button class="btn btn-sm btn-info" onclick="editRecord(' + row.id + ')"><i class="fas fa-edit"></i></button> <button class="btn btn-sm btn-danger" onclick="deleteRecord(' + row.id + ')"><i class="fas fa-trash"></i></button></td></tr>';
       }).join('');
       document.getElementById('record-count').textContent = records.length + ' records';
+      var tc = document.getElementById('totalCount');
+      if (tc) tc.textContent = records.length;
     }
 
-    function openModal() { document.getElementById('modal').classList.add('open'); }
-    function closeModal() { document.getElementById('modal').classList.remove('open'); }
+    function openModal() { $('#addEditModal').modal('show'); }
 
-    function handleAddRecord(e) {
-      e.preventDefault();
-      var name = document.getElementById('new-name').value;
-      var status = document.getElementById('new-status').value;
-      var value = document.getElementById('new-value').value || '$0.00';
+    function handleAddRecord() {
+      var n = document.getElementById('new-name').value;
+      var s = document.getElementById('new-status').value;
+      var v = document.getElementById('new-value').value || '$0.00';
       var today = new Date().toISOString().split('T')[0];
-      records.push({ id: nextId++, name: name, status: status, date: today, value: value });
+      records.push({ id: nextId++, name: n, status: s, date: today, value: v });
       renderTable();
-      closeModal();
-      e.target.reset();
-      showToast('${primaryEntity} added successfully!');
+      $('#addEditModal').modal('hide');
+      document.getElementById('entityForm').reset();
+      showToast('\${primaryEntity} added successfully!');
     }
 
     function editRecord(id) { showToast('Edit mode for record #' + id); }
@@ -579,17 +534,15 @@ export function generateAppHTML(
     }
 
     function showToast(msg) {
-      var t = document.createElement('div');
-      t.className = 'toast';
-      t.textContent = msg;
-      document.body.appendChild(t);
-      setTimeout(function() { t.remove(); }, 3000);
+      var t = $('<div class="alert alert-success alert-dismissible fade show" style="position:fixed;bottom:24px;right:24px;z-index:9999;min-width:250px;">' + msg + '<button type="button" class="close" data-dismiss="alert">&times;</button></div>');
+      $('body').append(t);
+      setTimeout(function() { t.alert('close'); }, 3000);
     }
 
-    document.getElementById('modal').addEventListener('click', function(e) {
-      if (e.target === this) closeModal();
+    $(document).ready(function() {
+      if ($.fn.DataTable) { $('#dataTable').DataTable(); }
     });
   </script>
 </body>
-</html>`;
+</html>\`;
 }

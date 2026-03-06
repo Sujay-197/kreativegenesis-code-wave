@@ -118,29 +118,131 @@ groq_client = groq.Groq(api_key=groq_api_key) if groq_api_key else None
 hf_token = os.getenv("HUGGINGFACE_API_KEY")
 hf_client = InferenceClient(api_key=hf_token) if hf_token else None
 
-# Prompt template used for code generation. Historically called MISTRAL, now targeted at Qwen coder model.
-CODE_PROMPT_TEMPLATE = """You are an expert Frontend Developer. Your task is to generate a fully functioning web application based on the following requirements:
+# ─── Compact SB Admin 2 skeleton the model MUST follow ───
+_SB_ADMIN_SKELETON = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <title>{{APP_TITLE}}</title>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/startbootstrap-sb-admin-2@4.1.3/css/sb-admin-2.min.css" rel="stylesheet">
+  <link href="https://cdn.datatables.net/1.13.4/css/dataTables.bootstrap4.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body id="page-top">
+  <div id="wrapper">
+    <!-- Sidebar -->
+    <ul class="navbar-nav bg-gradient-primary sidebar sidebar-dark accordion" id="accordionSidebar">
+      <a class="sidebar-brand d-flex align-items-center justify-content-center" href="#">
+        <div class="sidebar-brand-icon rotate-n-15"><i class="fas fa-laugh-wink"></i></div>
+        <div class="sidebar-brand-text mx-3">{{APP_TITLE}}</div>
+      </a>
+      <hr class="sidebar-divider my-0">
+      <li class="nav-item active"><a class="nav-link" href="#"><i class="fas fa-fw fa-tachometer-alt"></i><span>Dashboard</span></a></li>
+      <hr class="sidebar-divider">
+      <div class="sidebar-heading">Management</div>
+      <li class="nav-item"><a class="nav-link" href="#"><i class="fas fa-fw fa-table"></i><span>Records</span></a></li>
+      <li class="nav-item"><a class="nav-link" href="#"><i class="fas fa-fw fa-chart-area"></i><span>Reports</span></a></li>
+    </ul>
+    <!-- Content Wrapper -->
+    <div id="content-wrapper" class="d-flex flex-column">
+      <div id="content">
+        <!-- Topbar -->
+        <nav class="navbar navbar-expand navbar-light bg-white topbar mb-4 static-top shadow">
+          <button id="sidebarToggleTop" class="btn btn-link d-md-none rounded-circle mr-3"><i class="fa fa-bars"></i></button>
+          <ul class="navbar-nav ml-auto">
+            <li class="nav-item dropdown no-arrow">
+              <a class="nav-link dropdown-toggle" href="#" role="button" data-toggle="dropdown"><span class="mr-2 d-none d-lg-inline text-gray-600 small">User</span><i class="fas fa-user-circle fa-fw"></i></a>
+            </li>
+          </ul>
+        </nav>
+        <!-- Begin Page Content -->
+        <div class="container-fluid">
+          <div class="d-sm-flex align-items-center justify-content-between mb-4">
+            <h1 class="h3 mb-0 text-gray-800">Dashboard</h1>
+          </div>
+          <!-- Summary Cards Row -->
+          <div class="row">
+            <div class="col-xl-3 col-md-6 mb-4">
+              <div class="card border-left-primary shadow h-100 py-2">
+                <div class="card-body"><div class="row no-gutters align-items-center"><div class="col mr-2"><div class="text-xs font-weight-bold text-primary text-uppercase mb-1">Total</div><div class="h5 mb-0 font-weight-bold text-gray-800">0</div></div><div class="col-auto"><i class="fas fa-calendar fa-2x text-gray-300"></i></div></div></div>
+              </div>
+            </div>
+          </div>
+          <!-- DataTable -->
+          <div class="card shadow mb-4">
+            <div class="card-header py-3"><h6 class="m-0 font-weight-bold text-primary">Records</h6></div>
+            <div class="card-body"><div class="table-responsive"><table class="table table-bordered" id="dataTable" width="100%" cellspacing="0"><thead><tr><th>#</th><th>Name</th><th>Status</th></tr></thead><tbody></tbody></table></div></div>
+          </div>
+          <!-- Charts -->
+          <div class="row">
+            <div class="col-xl-8 col-lg-7"><div class="card shadow mb-4"><div class="card-header py-3"><h6 class="m-0 font-weight-bold text-primary">Overview</h6></div><div class="card-body"><div class="chart-area"><canvas id="myAreaChart"></canvas></div></div></div></div>
+            <div class="col-xl-4 col-lg-5"><div class="card shadow mb-4"><div class="card-header py-3"><h6 class="m-0 font-weight-bold text-primary">Breakdown</h6></div><div class="card-body"><div class="chart-pie pt-4 pb-2"><canvas id="myPieChart"></canvas></div></div></div></div>
+          </div>
+        </div>
+      </div>
+      <!-- Footer -->
+      <footer class="sticky-footer bg-white"><div class="container my-auto"><div class="copyright text-center my-auto"><span>AppForge AI &copy; 2026</span></div></div></footer>
+    </div>
+  </div>
+  <!-- Modal for Add/Edit -->
+  <div class="modal fade" id="addEditModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Add / Edit</h5><button type="button" class="close" data-dismiss="modal">&times;</button></div><div class="modal-body"><form id="entityForm"><!-- form fields here --></form></div><div class="modal-footer"><button class="btn btn-secondary" data-dismiss="modal">Cancel</button><button class="btn btn-primary" id="saveBtn">Save</button></div></div></div></div>
+  <script src="https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jquery.easing@1.4.1/jquery.easing.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/startbootstrap-sb-admin-2@4.1.3/js/sb-admin-2.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@2.9.4/dist/Chart.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.4/js/dataTables.bootstrap4.min.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
+"""
 
+# Prompt template used for code generation — enforces SB Admin 2 template.
+CODE_PROMPT_TEMPLATE = """You are an expert Frontend Developer specializing in Bootstrap 4 admin dashboards.
+
+You MUST generate a fully working single-page web app using the SB Admin 2 dashboard template structure shown below.
+Do NOT use Tailwind, dark themes, or any other framework. You MUST use Bootstrap 4 + SB Admin 2 CDN.
+
+## APP REQUIREMENTS:
 Authentication/Users: {auth_and_users}
 Data/Storage: {data_and_storage}
 UI Complexity: {ui_complexity}
 Business Logic: {business_logic}
 Integrations: {integrations}
 
-Generate the code using HTML, CSS (Tailwind via CDN is okay), and plain JavaScript. 
-IMPORTANT: Your output MUST contain exactly three code blocks formatted as follows:
+## MANDATORY SB ADMIN 2 SKELETON (you MUST keep this exact structure — customize content only):
+{skeleton}
+
+## ADAPTATION RULES:
+1. KEEP the EXACT HTML structure above: #wrapper → sidebar (.bg-gradient-primary) → #content-wrapper → topbar → .container-fluid → cards → tables → charts → footer.
+2. Replace {{{{APP_TITLE}}}} with the app name derived from the requirements.
+3. Sidebar nav items: replace with pages/entities relevant to the app (Dashboard, each entity list, Reports, etc.).
+4. Summary cards (.border-left-primary etc.): show key metrics (totals, counts, amounts) for the app's domain.
+5. DataTable: customize columns for the app's primary entity. Include Add/Edit/Delete buttons.
+6. Charts: area chart for trends over time, pie chart for category breakdowns — both relevant to the app.
+7. Modal (#addEditModal): add form fields matching the app's primary entity.
+8. ALL data persistence via localStorage. Full CRUD operations.
+9. Use ONLY these CDN links (already in skeleton) — do NOT add other CSS frameworks or dark-theme CSS.
+10. The app must look like an SB Admin 2 dashboard — white background, gradient-primary blue sidebar, light topbar, card shadows.
+
+## OUTPUT FORMAT — exactly three code blocks:
 
 ```html
-<!-- HTML code here -->
+<!-- Complete HTML page following the skeleton above with customized sidebar items, cards, table columns, chart canvases, and modal form fields -->
 ```
 ```css
-/* CSS code here */
+/* ONLY additional custom styles — keep sb-admin-2 defaults. No dark themes. No Tailwind. */
 ```
 ```javascript
-// JS code here
+// Full app logic: localStorage CRUD, DataTable initialization, Chart.js setup, form handling, card metric updates
 ```
 
-Do not include any explanations outside of the code blocks. Give me only the code.
+Do NOT add any text outside the code blocks. Give ONLY the code.
 """
 
 def extract_code_blocks(markdown_text: str) -> tuple[str, str, str]:
@@ -285,21 +387,21 @@ async def generate_app(request: GenerateRequest, db: Session = Depends(get_db)):
     if not hf_client:
         raise HTTPException(status_code=500, detail="Hugging Face API key is missing.")
     
-    # Format the prompt
+    # Format the prompt with SB Admin 2 skeleton
     reqs = request.requirements_object
     prompt = CODE_PROMPT_TEMPLATE.format(
         auth_and_users=reqs.auth_and_users,
         data_and_storage=reqs.data_and_storage,
         ui_complexity=reqs.ui_complexity,
         business_logic=reqs.business_logic,
-        integrations=reqs.integrations
+        integrations=reqs.integrations,
+        skeleton=_SB_ADMIN_SKELETON
     )
     
     try:
-        # Generate with Qwen coder model
-        # Using Qwen/Qwen2.5-coder for improved code generation (replacing earlier Mistral usage)
+        # Generate with Qwen coder model (SB Admin 2 enforced)
         response = hf_client.chat_completion(
-            model="mistralai/Mistral-7B-Instruct-v0.2",
+            model="Qwen/Qwen2.5-Coder-32B-Instruct",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=2048,
             temperature=0.2

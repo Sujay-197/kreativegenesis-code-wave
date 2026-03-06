@@ -142,7 +142,8 @@ InNovus AI introduces a **conversational intelligence layer before code generati
 ---
 
 ## System Architecture
-![System Architecture](system_architecture.png)
+![System Architecture](kreativegenesis-code-wave
+/WhatsApp Image 2026-03-06 at 9.29.19 AM.jpeg)
 
 ---
 

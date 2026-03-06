@@ -1,7 +1,11 @@
+# Kreative Genesis 2026
+
+# Team Code Wave
+# AI and Automation
+# No Code AI 
+
 # InNovus AI — Conversational No-Code App Builder
 
-## Introduction
-I am participating in the hackathon **Kreative Genesis** and this is the project I am planning to submit. I represent a team of 4 members from **Amrita Vishwa Vidyapeetham**.
 
 ---
 

@@ -86,13 +86,37 @@ DEFAULT_REQUIREMENTS = {
     "integrations": "Not yet discussed"
 }
 
+# ─── Deterministic dimension routing (prevents question repetition) ───
+DIMENSION_ORDER = [
+    "problem_statement_or_domain",
+    "auth_and_users",
+    "data_and_storage",
+    "ui_complexity",
+    "business_logic",
+    "integrations",
+]
+
+DIMENSION_FRIENDLY = {
+    "problem_statement_or_domain": "what problem this app solves and what their day-to-day challenge is",
+    "auth_and_users": "who will use this tool — just them, or do they have a team/customers who need access",
+    "data_and_storage": "what key information and records they need to keep track of",
+    "ui_complexity": "how they imagine using this — what the main screen should show, how it should look",
+    "business_logic": "any rules, calculations, or automated workflows the app should handle",
+    "integrations": "whether this needs to connect to any external services or tools they already use",
+}
+
 
 def _normalize_requirements(requirements: dict | None) -> dict:
     """Ensure requirements dict always has all expected keys for backward compatibility."""
-    normalized = DEFAULT_REQUIREMENTS.copy()
+    normalized: dict[str, Any] = dict(DEFAULT_REQUIREMENTS)
     if requirements:
         for k, v in requirements.items():
             normalized[k] = v
+    # Preserve discussed dimensions tracking
+    if requirements and "_discussed" in requirements:
+        normalized["_discussed"] = requirements["_discussed"]
+    elif "_discussed" not in normalized:
+        normalized["_discussed"] = []
     return normalized
 
 
@@ -215,26 +239,25 @@ Connection Strategy:
 Output ONLY your conversational response (the next question). Do not output JSON.
 """
 
-def build_llama_prompt(current_requirements: dict, history: list) -> str:
-    """Build the Llama system prompt driven by JSON deficits and optional template context."""
+def build_llama_prompt(current_requirements: dict, history: list, target_dimension: str | None = None) -> str:
+    """Build the Llama system prompt focused on a specific dimension to ask about."""
     req_summary = "\n".join(
         f"  - {dim}: {val}" for dim, val in current_requirements.items()
+        if dim != "_discussed"
     )
 
-    deficits = _get_deficits(current_requirements)
-
-    # Build deficit instructions
-    if deficits:
-        deficit_block = (
-            "\n\n⚠️ MISSING INFORMATION — Your next question MUST explore ONE of these gaps:\n"
-            + "\n".join(f"  • {d}" for d in deficits)
-            + "\n\nPick the most natural gap to ask about given what the user just told you. "
-            "Do NOT ask about dimensions that already have information."
+    # Deterministic dimension targeting — tell Llama EXACTLY what to ask about
+    if target_dimension and target_dimension in DIMENSION_FRIENDLY:
+        dimension_instruction = (
+            f"\n\nYour ONLY task right now: Ask ONE warm, conversational question about "
+            f"{DIMENSION_FRIENDLY[target_dimension]}. "
+            f"Do NOT ask about any other topic. Frame it naturally, referencing what the user already shared."
         )
     else:
-        deficit_block = (
-            "\n\nAll 6 dimensions have some information gathered. "
-            "Ask if there's anything else they'd like to add, or a deeper follow-up on the least detailed dimension."
+        dimension_instruction = (
+            "\n\nAll key areas have been covered. Warmly let them know you have a good picture "
+            "of what they need, and ask if there's anything else they'd like to add or adjust "
+            "before you build their app."
         )
 
     # Try to match a template for richer context
@@ -242,7 +265,7 @@ def build_llama_prompt(current_requirements: dict, history: list) -> str:
     template_block = ""
     if template:
         template_block = (
-            f"\n\nREFERENCE TEMPLATE (use as inspiration for what details to ask about — '{template['name']}'):\n"
+            f"\n\nREFERENCE TEMPLATE (use as inspiration — '{template['name']}'):\n"
             f"  - Users: {template['auth_and_users']}\n"
             f"  - Data: {template['data_and_storage']}\n"
             f"  - UI: {template['ui_complexity']}\n"
@@ -254,7 +277,7 @@ def build_llama_prompt(current_requirements: dict, history: list) -> str:
     return (
         LLAMA_BASE_PROMPT
         + f"\n\nRequirements gathered so far:\n{req_summary}"
-        + deficit_block
+        + dimension_instruction
         + template_block
     )
 
@@ -448,15 +471,18 @@ Integrations: {integrations}
 
 ## INSTRUCTIONS:
 1. KEEP the template's SB Admin 2 layout: sidebar navigation, topbar, card-based content, Bootstrap 4 classes, gradient primary sidebar.
-2. KEEP vendor CDN references to Bootstrap, jQuery, FontAwesome, Chart.js, DataTables — use these same paths:
-   - vendor/fontawesome-free/css/all.min.css
-   - css/sb-admin-2.min.css
-   - vendor/jquery/jquery.min.js
-   - vendor/bootstrap/js/bootstrap.bundle.min.js
-   - vendor/jquery-easing/jquery.easing.min.js
-   - js/sb-admin-2.min.js
-   - vendor/chart.js/Chart.min.js (if charts needed)
-   - vendor/datatables/jquery.dataTables.min.js + dataTables.bootstrap4.min.js (if tables needed)
+2. Use CDN links for ALL vendor libraries so the app works standalone in any browser:
+   - https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css
+   - https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css
+   - https://cdn.jsdelivr.net/npm/startbootstrap-sb-admin-2@4.1.3/css/sb-admin-2.min.css
+   - https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js
+   - https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js
+   - https://cdn.jsdelivr.net/npm/jquery.easing@1.4.1/jquery.easing.min.js
+   - https://cdn.jsdelivr.net/npm/startbootstrap-sb-admin-2@4.1.3/js/sb-admin-2.min.js
+   - https://cdn.jsdelivr.net/npm/chart.js@2.9.4/dist/Chart.min.js (if charts needed)
+   - https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js (if tables needed)
+   - https://cdn.datatables.net/1.13.4/js/dataTables.bootstrap4.min.js (if tables needed)
+   - https://cdn.datatables.net/1.13.4/css/dataTables.bootstrap4.min.css (if tables needed)
 3. CHANGE: page title, sidebar brand name, sidebar nav items, card content, table columns, form fields — all to match the required app.
 4. CHANGE: JavaScript data models and logic — use localStorage for data persistence. Create proper CRUD operations for the entities specified.
 5. If the app needs charts, adapt the chart-demo.js pattern with the correct labels/data for the new app.
@@ -546,7 +572,8 @@ def _build_chat_summary(requirements: dict) -> str:
     )
 
 def get_genai_response(conversation_history: list, current_requirements: dict) -> str:
-    """Takes the history and accumulated requirements, returns a JSON response string."""
+    """Takes the history and accumulated requirements, returns a JSON response string.
+    Uses deterministic dimension routing to prevent question repetition."""
     if not groq_client:
         raise Exception("GROQ_API_KEY not configured")
     if not hf_client:
@@ -554,8 +581,7 @@ def get_genai_response(conversation_history: list, current_requirements: dict) -
 
     import re
 
-    # 1) Extract requirements first using the latest conversation
-    # so question generation can use the UPDATED JSON and avoid repeats.
+    # 1) Extract requirements using Qwen
     qwen_prompt = build_qwen_prompt(current_requirements, conversation_history)
     extraction_messages = [{"role": "system", "content": qwen_prompt}]
     for msg in conversation_history:
@@ -571,7 +597,6 @@ def get_genai_response(conversation_history: list, current_requirements: dict) -
     qwen_content = qwen_response.choices[0].message.content
     requirements_json_str = qwen_content.strip() if qwen_content else ""
     
-    # Try to clean up output (strip markdown fences, etc.)
     json_match = re.search(r'\{.*\}', requirements_json_str, re.DOTALL)
     if json_match:
         requirements_json_str = json_match.group(0)
@@ -581,17 +606,15 @@ def get_genai_response(conversation_history: list, current_requirements: dict) -
     except Exception:
         req_data = {}
 
-    # Merge: keep previous value if Qwen returned empty / "Not yet discussed" for a field
+    # 2) Merge: keep previous value if Qwen lost it
     merged_requirements = {}
-    for key in ["problem_statement_or_domain", "auth_and_users", "data_and_storage", "ui_complexity", "business_logic", "integrations"]:
+    for key in DIMENSION_ORDER:
         new_val = req_data.get(key, "Not yet discussed")
         old_val = current_requirements.get(key, "Not yet discussed")
-        # Normalize empties
         if not new_val or new_val.strip().lower() in ("not yet discussed", "n/a", "none", "unknown", ""):
             new_val = None
         if not old_val or old_val.strip().lower() in ("not yet discussed", "n/a", "none", "unknown", ""):
             old_val = None
-        # Prefer new value if it has real info, else keep old, else "Not yet discussed"
         if new_val:
             merged_requirements[key] = new_val
         elif old_val:
@@ -599,7 +622,7 @@ def get_genai_response(conversation_history: list, current_requirements: dict) -
         else:
             merged_requirements[key] = "Not yet discussed"
 
-    # Heuristic parser for short/typo user replies so we still progress JSON.
+    # 3) Heuristic parser for short/typo user replies
     last_user_text = ""
     for msg in reversed(conversation_history):
         if msg["role"] == "user":
@@ -623,11 +646,10 @@ def get_genai_response(conversation_history: list, current_requirements: dict) -
             elif "list" in last_user_text:
                 merged_requirements["ui_complexity"] = "List-centric interface"
 
-    # If a template matches, pre-fill any remaining "Not yet discussed" dimensions
-    # with sensible defaults from the template (user can refine later)
+    # 4) Template pre-fill for remaining gaps
     template = _find_matching_template(merged_requirements, conversation_history)
     if template:
-        for key in ["problem_statement_or_domain", "auth_and_users", "data_and_storage", "ui_complexity", "business_logic", "integrations"]:
+        for key in DIMENSION_ORDER:
             if merged_requirements[key] != "Not yet discussed":
                 continue
             if key == "problem_statement_or_domain":
@@ -635,21 +657,35 @@ def get_genai_response(conversation_history: list, current_requirements: dict) -
             elif template.get(key):
                 merged_requirements[key] = template[key] + " (default — refine if needed)"
 
-    # Build next question using the UPDATED requirements.
-    llama_prompt = build_llama_prompt(merged_requirements, conversation_history)
+    # 5) Update discussed dimensions — once discussed, always discussed (prevents re-asking)
+    discussed = set(current_requirements.get("_discussed", []))
+    for key in DIMENSION_ORDER:
+        if _is_filled(merged_requirements.get(key)):
+            discussed.add(key)
+    merged_requirements["_discussed"] = list(discussed)
+
+    # 6) Deterministic dimension selection — pick the NEXT unfilled dimension
+    next_dim = None
+    for key in DIMENSION_ORDER:
+        if key not in discussed:
+            next_dim = key
+            break
+
+    # 7) Generate next question using Llama, targeting the specific dimension
+    llama_prompt = build_llama_prompt(merged_requirements, conversation_history, target_dimension=next_dim)
     messages = [{"role": "system", "content": llama_prompt}]
     for msg in conversation_history:
         role = "assistant" if msg["role"] == "model" else "user"
         messages.append({"role": role, "content": msg["parts"][0]})
 
-    # Detect low-signal reply with no requirements progress and ask for clarification.
+    # Detect low-signal reply
     progressed = any(
         merged_requirements.get(k, "Not yet discussed") != current_requirements.get(k, "Not yet discussed")
-        for k in ["problem_statement_or_domain", "auth_and_users", "data_and_storage", "ui_complexity", "business_logic", "integrations"]
+        for k in DIMENSION_ORDER
     )
     token_count = len([t for t in re.split(r"\s+", last_user_text) if t]) if last_user_text else 0
     if last_user_text and (not progressed) and token_count <= 3:
-        next_question = "Sorry, I did not quite catch that. Could you rephrase it in a bit more detail?"
+        next_question = "Sorry, I didn't quite catch that. Could you rephrase it in a bit more detail?"
     else:
         llama_response = groq_client.chat.completions.create(
             model="llama3-8b-8192",
@@ -660,31 +696,31 @@ def get_genai_response(conversation_history: list, current_requirements: dict) -
         llama_content = llama_response.choices[0].message.content
         next_question = llama_content.strip() if llama_content else ""
 
-    # Repetition guard: if model repeats last assistant question, force a deficit-focused fallback.
+    # Repetition guard: if Llama repeats the last question verbatim, force a fallback
     last_model_question = ""
     for msg in reversed(conversation_history):
         if msg["role"] == "model":
             last_model_question = msg["parts"][0].strip().lower()
             break
     if next_question.strip().lower() == last_model_question:
-        deficits = _get_deficits(merged_requirements)
-        if deficits:
-            first_gap = deficits[0]
-            next_question = f"Thanks. To make sure I get this right, could you clarify this part: {first_gap}?"
+        if next_dim:
+            next_question = f"Thanks for sharing that! I'd love to understand more about {DIMENSION_FRIENDLY[next_dim]}. Could you tell me a bit about that?"
         else:
-            next_question = "Thanks, that helps. Is there anything else you want this app to do before we generate it?"
+            next_question = "Thanks, that helps a lot. Is there anything else you'd like this app to do before we build it?"
 
-    # Calculate confidence based on how many dimensions have real info
-    filled = sum(1 for v in merged_requirements.values() if _is_filled(v))
+    # Calculate confidence from discussed coverage
+    filled = len(discussed)
     raw_confidence = float(req_data.get("confidence_score", 0.0))
-    # Confidence = max(model's score, coverage-based minimum)
     min_confidence = (filled / 6.0) * 100.0
     confidence = max(raw_confidence, min_confidence)
 
+    # Strip _discussed from the output requirements_object (internal tracking only)
+    output_requirements = {k: v for k, v in merged_requirements.items() if k != "_discussed"}
+
     final_output = {
         "next_question": next_question,
-        "requirements_object": merged_requirements,
-        "chat_summary": _build_chat_summary(merged_requirements),
+        "requirements_object": merged_requirements,  # includes _discussed for session persistence
+        "chat_summary": _build_chat_summary(output_requirements),
         "confidence_score": min(confidence, 100.0)
     }
     

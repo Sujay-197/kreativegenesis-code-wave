@@ -317,15 +317,18 @@ Integrations: {integrations}
 
 ## INSTRUCTIONS:
 1. KEEP the template's SB Admin 2 layout: sidebar navigation, topbar, card-based content, Bootstrap 4 classes, gradient primary sidebar.
-2. KEEP vendor CDN references to Bootstrap, jQuery, FontAwesome, Chart.js, DataTables — use these same paths:
-   - vendor/fontawesome-free/css/all.min.css
-   - css/sb-admin-2.min.css
-   - vendor/jquery/jquery.min.js
-   - vendor/bootstrap/js/bootstrap.bundle.min.js
-   - vendor/jquery-easing/jquery.easing.min.js
-   - js/sb-admin-2.min.js
-   - vendor/chart.js/Chart.min.js (if charts needed)
-   - vendor/datatables/jquery.dataTables.min.js + dataTables.bootstrap4.min.js (if tables needed)
+2. Use CDN links for ALL vendor libraries so the app works standalone in any browser:
+   - https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css
+   - https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css
+   - https://cdn.jsdelivr.net/npm/startbootstrap-sb-admin-2@4.1.3/css/sb-admin-2.min.css
+   - https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js
+   - https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js
+   - https://cdn.jsdelivr.net/npm/jquery.easing@1.4.1/jquery.easing.min.js
+   - https://cdn.jsdelivr.net/npm/startbootstrap-sb-admin-2@4.1.3/js/sb-admin-2.min.js
+   - https://cdn.jsdelivr.net/npm/chart.js@2.9.4/dist/Chart.min.js (if charts needed)
+   - https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js (if tables needed)
+   - https://cdn.datatables.net/1.13.4/js/dataTables.bootstrap4.min.js (if tables needed)
+   - https://cdn.datatables.net/1.13.4/css/dataTables.bootstrap4.min.css (if tables needed)
 3. CHANGE: page title, sidebar brand name, sidebar nav items, card content, table columns, form fields — all to match the required app.
 4. CHANGE: JavaScript data models and logic — use localStorage for data persistence. Create proper CRUD operations for the entities specified.
 5. If the app needs charts, adapt the chart-demo.js pattern with the correct labels/data for the new app.

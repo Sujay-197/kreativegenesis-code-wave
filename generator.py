@@ -124,15 +124,17 @@ RULES:
 4. Separate business logic from API route definitions.
 5. Handle errors gracefully with try/except and proper HTTP status codes.
 6. For Python backend files: use FastAPI, SQLAlchemy, Pydantic models.
-7. For HTML files: use the SB Admin 2 template structure (Bootstrap 4, sidebar, topbar, card-based content). Keep vendor CDN references to Bootstrap, jQuery, FontAwesome, Chart.js, DataTables using these paths:
-   - vendor/fontawesome-free/css/all.min.css
-   - css/sb-admin-2.min.css
-   - vendor/jquery/jquery.min.js
-   - vendor/bootstrap/js/bootstrap.bundle.min.js
-   - vendor/jquery-easing/jquery.easing.min.js
-   - js/sb-admin-2.min.js
-   - vendor/chart.js/Chart.min.js (if charts needed)
-   - vendor/datatables/jquery.dataTables.min.js + dataTables.bootstrap4.min.js (if tables needed)
+7. For HTML files: use the SB Admin 2 template structure (Bootstrap 4, sidebar, topbar, card-based content). Use CDN links for ALL vendor libraries so the app works standalone:
+   - https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css
+   - https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css
+   - https://cdn.jsdelivr.net/npm/startbootstrap-sb-admin-2@4.1.3/css/sb-admin-2.min.css
+   - https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js
+   - https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js
+   - https://cdn.jsdelivr.net/npm/jquery.easing@1.4.1/jquery.easing.min.js
+   - https://cdn.jsdelivr.net/npm/startbootstrap-sb-admin-2@4.1.3/js/sb-admin-2.min.js
+   - https://cdn.jsdelivr.net/npm/chart.js@2.9.4/dist/Chart.min.js (if charts needed)
+   - https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js (if tables needed)
+   - https://cdn.datatables.net/1.13.4/js/dataTables.bootstrap4.min.js (if tables needed)
 8. For CSS files: use clean, responsive design. Build on top of sb-admin-2.css, adding only custom styles.
 9. For JS files: use modern ES6+, fetch API for HTTP calls, modular functions.
 10. For requirements.txt: list only necessary packages with versions.

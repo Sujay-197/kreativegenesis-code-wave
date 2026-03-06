@@ -1,6 +1,7 @@
 import uuid
 import os
 import json
+import re
 import asyncio
 from typing import Any
 from fastapi import FastAPI, HTTPException, Depends
@@ -10,7 +11,7 @@ import groq
 from dotenv import load_dotenv
 from huggingface_hub import InferenceClient
 from sqlalchemy.orm import Session
-from database import SessionLocal, GeneratedApp
+from database import SessionLocal, GeneratedApp, ChatSession
 
 load_dotenv()
 
@@ -25,8 +26,79 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# In-memory dictionary mapped by UUID
-sessions = {}
+# ─── Deterministic dimension routing (prevents question repetition) ───
+DIMENSION_ORDER = [
+    "problem_statement_or_domain",
+    "auth_and_users",
+    "data_and_storage",
+    "ui_complexity",
+    "business_logic",
+    "integrations",
+]
+
+DIMENSION_FRIENDLY = {
+    "problem_statement_or_domain": "what problem this app solves and what their day-to-day challenge is",
+    "auth_and_users": "who will use this tool — just them, or do they have a team/customers who need access",
+    "data_and_storage": "what key information and records they need to keep track of",
+    "ui_complexity": "how they imagine using this — what the main screen should show, how it should look",
+    "business_logic": "any rules, calculations, or automated workflows the app should handle",
+    "integrations": "whether this needs to connect to any external services or tools they already use",
+}
+
+DEFAULT_REQUIREMENTS = {
+    "problem_statement_or_domain": "Not yet discussed",
+    "auth_and_users": "Not yet discussed",
+    "data_and_storage": "Not yet discussed",
+    "ui_complexity": "Not yet discussed",
+    "business_logic": "Not yet discussed",
+    "integrations": "Not yet discussed"
+}
+
+
+def _is_filled(val: str | None) -> bool:
+    if not val:
+        return False
+    return val.strip().lower() not in ("not yet discussed", "n/a", "none", "unknown", "")
+
+
+def _normalize_requirements(requirements: dict | None) -> dict:
+    normalized = DEFAULT_REQUIREMENTS.copy()
+    if requirements:
+        for k, v in requirements.items():
+            normalized[k] = v
+    if requirements and "_discussed" in requirements:
+        normalized["_discussed"] = requirements["_discussed"]
+    elif "_discussed" not in normalized:
+        normalized["_discussed"] = []
+    return normalized
+
+
+# ─── DB-backed session helpers ───
+def _load_session(db: Session, session_id: str | None) -> tuple[str, list, dict]:
+    if session_id:
+        db_session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+        if db_session:
+            history = json.loads(db_session.conversation_history)
+            requirements = _normalize_requirements(json.loads(db_session.requirements_json))
+            return session_id, history, requirements
+    new_id = str(uuid.uuid4())
+    new_session = ChatSession(
+        id=new_id,
+        conversation_history=json.dumps([]),
+        requirements_json=json.dumps(DEFAULT_REQUIREMENTS.copy())
+    )
+    db.add(new_session)
+    db.commit()
+    return new_id, [], DEFAULT_REQUIREMENTS.copy()
+
+
+def _save_session(db: Session, session_id: str, history: list, requirements: dict):
+    db_session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+    if db_session:
+        db_session.conversation_history = json.dumps(history)
+        db_session.requirements_json = json.dumps(requirements)
+        db.commit()
+
 
 # System prompt for Groq Llama 3 8B
 LLAMA_PROMPT = """You are AppForge AI's Simple Mode Companion—a warm, insightful guide who genuinely understands the challenges small business owners, NGOs, educators, and independent operators face daily.
@@ -36,10 +108,9 @@ Your core mission: Help them visualize and build the perfect software solution b
 Tone & Approach:
 - Be genuinely warm and conversational—like talking to a trusted mentor, not a form-filling bot
 - Show that you truly understand their world and the specific challenges they mentioned
-- Validate their struggles before asking the next question (e.g., "It sounds like managing orders is eating up your time...")
+- Validate their struggles before asking the next question
 - Use their own language and context naturally throughout
 - Help them see the bigger picture: how solving this problem will free up time, reduce stress, or unlock growth
-- Make them feel like a smart decision-maker for thinking through these details
 
 Question Guidelines:
 1. Always reference something specific they said—builds trust and shows you're listening
@@ -47,19 +118,18 @@ Question Guidelines:
 3. Lead with curiosity about their situation, not about technical requirements
 4. Avoid buzzwords completely (no "database," "authentication," "REST APIs," "UI components," etc.)
 5. Never use lists or multiple-choice—keep it like a conversation between two people
-6. Subtly explore these 6 dimensions without them feeling like a checklist: What problem/domain is this for? Who uses this tool? What data matters most? How should it look and feel? What complex workflows run behind the scenes? Does this connect to other tools they use?
-
-Connection Strategy:
-- Reference their specific context (bakery → orders/inventory, school → student records, etc.)
-- Acknowledge time/stress: "So you're juggling this manually right now..."
-- Paint a picture: "Imagine being able to..."
-- Show empathy for their constraints (budget, time, technical comfort)
 
 Output ONLY your conversational response (the next question). Do not output JSON.
 """
 
 # System prompt for HF Qwen 7B
-QWEN_PROMPT = """You are a seasoned technical analyzer. Review the conversation history and extract the user's requirements into 6 dimensions.
+QWEN_PROMPT = """You are a seasoned technical analyzer. Review the FULL conversation history and extract ALL requirements into 6 dimensions.
+
+IMPORTANT RULES:
+1. Preserve and build upon previously extracted requirements. Never lose information.
+2. If a dimension was discussed earlier, keep that information AND add any new details.
+3. Only write "Not yet discussed" if the topic has genuinely NEVER been mentioned.
+
 You MUST output ONLY valid JSON matching this exact structure:
 {
   "problem_statement_or_domain": "string",
@@ -70,7 +140,6 @@ You MUST output ONLY valid JSON matching this exact structure:
   "integrations": "string",
   "confidence_score": float (0.0 to 100.0)
 }
-Specific details only. If unknown, write "Not yet discussed".
 Output ONLY the JSON object, with no markdown formatting.
 """
 
@@ -135,15 +204,18 @@ Integrations: {integrations}
 
 ## INSTRUCTIONS:
 1. KEEP the template's SB Admin 2 layout: sidebar navigation, topbar, card-based content, Bootstrap 4 classes, gradient primary sidebar.
-2. KEEP vendor CDN references to Bootstrap, jQuery, FontAwesome, Chart.js, DataTables — use these same paths:
-   - vendor/fontawesome-free/css/all.min.css
-   - css/sb-admin-2.min.css
-   - vendor/jquery/jquery.min.js
-   - vendor/bootstrap/js/bootstrap.bundle.min.js
-   - vendor/jquery-easing/jquery.easing.min.js
-   - js/sb-admin-2.min.js
-   - vendor/chart.js/Chart.min.js (if charts needed)
-   - vendor/datatables/jquery.dataTables.min.js + dataTables.bootstrap4.min.js (if tables needed)
+2. Use CDN links for ALL vendor libraries so the app works standalone in any browser:
+   - https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css
+   - https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css
+   - https://cdn.jsdelivr.net/npm/startbootstrap-sb-admin-2@4.1.3/css/sb-admin-2.min.css
+   - https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js
+   - https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js
+   - https://cdn.jsdelivr.net/npm/jquery.easing@1.4.1/jquery.easing.min.js
+   - https://cdn.jsdelivr.net/npm/startbootstrap-sb-admin-2@4.1.3/js/sb-admin-2.min.js
+   - https://cdn.jsdelivr.net/npm/chart.js@2.9.4/dist/Chart.min.js (if charts needed)
+   - https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js (if tables needed)
+   - https://cdn.datatables.net/1.13.4/js/dataTables.bootstrap4.min.js (if tables needed)
+   - https://cdn.datatables.net/1.13.4/css/dataTables.bootstrap4.min.css (if tables needed)
 3. CHANGE: page title, sidebar brand name, sidebar nav items, card content, table columns, form fields — all to match the required app.
 4. CHANGE: JavaScript data models and logic — use localStorage for data persistence. Create proper CRUD operations.
 5. If the app needs charts, adapt the Chart.js pattern with correct labels/data.
@@ -280,113 +352,168 @@ def extract_code_blocks(markdown_text: str) -> tuple[str, str, str]:
 
     return html_content, css_content, js_content
 
-def get_genai_response(conversation_history: list) -> str:
-    """Takes the history and returns a strictly typed JSON response string."""
+def get_genai_response(conversation_history: list, current_requirements: dict) -> str:
+    """Takes the history and accumulated requirements, returns a JSON response string.
+    Uses deterministic dimension routing to prevent question repetition."""
     if not groq_client:
         raise Exception("GROQ_API_KEY not configured")
     if not hf_client:
         raise Exception("HUGGINGFACE_API_KEY not configured")
-        
-    # 1. Fetch next question using Groq (Llama 3 8B)
-    messages = [{"role": "system", "content": LLAMA_PROMPT}]
+
+    # 1) Extract requirements using Qwen
+    qwen_messages = [{"role": "system", "content": QWEN_PROMPT}]
+    # Include previous requirements for context
+    prev_json = json.dumps({k: v for k, v in current_requirements.items() if k != "_discussed"}, indent=2)
+    qwen_messages.append({"role": "system", "content": f"Previously extracted requirements (preserve and expand):\n{prev_json}"})
     for msg in conversation_history:
         role = "assistant" if msg["role"] == "model" else "user"
-        messages.append({"role": role, "content": msg["parts"][0]})
-        
-    llama_response = groq_client.chat.completions.create(
-        model="llama3-8b-8192",
-        messages=messages,  # type: ignore[arg-type]
-        temperature=0.7,
-        max_tokens=200
-    )
-    llama_content = llama_response.choices[0].message.content
-    next_question = llama_content.strip() if llama_content else ""
+        qwen_messages.append({"role": role, "content": msg["parts"][0]})
 
-    # 2. Extract requirements using HF Qwen 7B
-    extraction_messages = [{"role": "system", "content": QWEN_PROMPT}]
-    extraction_messages.extend(messages[1:]) # Add conversation history
-    extraction_messages.append({"role": "assistant", "content": next_question})
-    
     qwen_response = hf_client.chat_completion(
         model="Qwen/Qwen2.5-7B-Instruct",
-        messages=extraction_messages,  # type: ignore[arg-type]
+        messages=qwen_messages,  # type: ignore[arg-type]
         temperature=0.1,
         max_tokens=600
     )
     qwen_content = qwen_response.choices[0].message.content
     requirements_json_str = qwen_content.strip() if qwen_content else ""
-    
-    # Try to clean up output
-    import re
+
     json_match = re.search(r'\{.*\}', requirements_json_str, re.DOTALL)
     if json_match:
         requirements_json_str = json_match.group(0)
-        
+
     try:
         req_data = json.loads(requirements_json_str)
     except Exception:
         req_data = {}
-        
-    # Construct final output
+
+    # 2) Merge: keep previous value if Qwen lost it
+    merged_requirements = {}
+    for key in DIMENSION_ORDER:
+        new_val = req_data.get(key, "Not yet discussed")
+        old_val = current_requirements.get(key, "Not yet discussed")
+        if not new_val or new_val.strip().lower() in ("not yet discussed", "n/a", "none", "unknown", ""):
+            new_val = None
+        if not old_val or old_val.strip().lower() in ("not yet discussed", "n/a", "none", "unknown", ""):
+            old_val = None
+        if new_val:
+            merged_requirements[key] = new_val
+        elif old_val:
+            merged_requirements[key] = old_val
+        else:
+            merged_requirements[key] = "Not yet discussed"
+
+    # 3) Update discussed dimensions — once discussed, always discussed
+    discussed = set(current_requirements.get("_discussed", []))
+    for key in DIMENSION_ORDER:
+        if _is_filled(merged_requirements.get(key)):
+            discussed.add(key)
+    merged_requirements["_discussed"] = list(discussed)
+
+    # 4) Deterministic dimension selection — pick the NEXT unfilled dimension
+    next_dim = None
+    for key in DIMENSION_ORDER:
+        if key not in discussed:
+            next_dim = key
+            break
+
+    # 5) Build targeted Llama prompt
+    req_summary = "\n".join(f"  - {dim}: {val}" for dim, val in merged_requirements.items() if dim != "_discussed")
+    if next_dim:
+        dimension_instruction = (
+            f"\n\nYour ONLY task right now: Ask ONE warm, conversational question about "
+            f"{DIMENSION_FRIENDLY[next_dim]}. "
+            f"Do NOT ask about any other topic. Frame it naturally, referencing what the user already shared."
+        )
+    else:
+        dimension_instruction = (
+            "\n\nAll key areas have been covered. Warmly let them know you have a good picture "
+            "of what they need, and ask if there's anything else they'd like to add or adjust."
+        )
+
+    llama_system = LLAMA_PROMPT + f"\n\nRequirements gathered so far:\n{req_summary}" + dimension_instruction
+    messages = [{"role": "system", "content": llama_system}]
+    for msg in conversation_history:
+        role = "assistant" if msg["role"] == "model" else "user"
+        messages.append({"role": role, "content": msg["parts"][0]})
+
+    llama_response = groq_client.chat.completions.create(
+        model="llama3-8b-8192",
+        messages=messages,  # type: ignore[arg-type]
+        temperature=0.7,
+        max_tokens=250
+    )
+    llama_content = llama_response.choices[0].message.content
+    next_question = llama_content.strip() if llama_content else ""
+
+    # Repetition guard
+    last_model_question = ""
+    for msg in reversed(conversation_history):
+        if msg["role"] == "model":
+            last_model_question = msg["parts"][0].strip().lower()
+            break
+    if next_question.strip().lower() == last_model_question:
+        if next_dim:
+            next_question = f"Thanks for sharing that! I'd love to understand more about {DIMENSION_FRIENDLY[next_dim]}. Could you tell me a bit about that?"
+        else:
+            next_question = "Thanks, that helps a lot. Is there anything else you'd like this app to do before we build it?"
+
+    # Calculate confidence from discussion coverage
+    filled = len(discussed)
+    raw_confidence = float(req_data.get("confidence_score", 0.0))
+    min_confidence = (filled / 6.0) * 100.0
+    confidence = max(raw_confidence, min_confidence)
+
     final_output = {
         "next_question": next_question,
-        "requirements_object": {
-            "problem_statement_or_domain": req_data.get("problem_statement_or_domain", "Not yet discussed"),
-            "auth_and_users": req_data.get("auth_and_users", "Not yet discussed"),
-            "data_and_storage": req_data.get("data_and_storage", "Not yet discussed"),
-            "ui_complexity": req_data.get("ui_complexity", "Not yet discussed"),
-            "business_logic": req_data.get("business_logic", "Not yet discussed"),
-            "integrations": req_data.get("integrations", "Not yet discussed")
-        },
-        "confidence_score": float(req_data.get("confidence_score", 0.0))
+        "requirements_object": merged_requirements,
+        "confidence_score": min(confidence, 100.0)
     }
-    
+
     return json.dumps(final_output)
 
 @app.post("/api/chat/simple", response_model=ChatResponseOuter)
-async def simple_mode_chat(request: ChatRequest):
-    session_id = request.session_id
-    if not session_id or session_id not in sessions:
-        session_id = str(uuid.uuid4())
-        sessions[session_id] = {
-            "history": []
-        }
-    
-    history = sessions[session_id]["history"]
+async def simple_mode_chat(request: ChatRequest, db: Session = Depends(get_db)):
+    session_id, history, current_requirements = _load_session(db, request.session_id)
+
     history.append({
         "role": "user",
         "parts": [request.user_message]
     })
-    
+
     try:
         loop = asyncio.get_event_loop()
         response_text = await asyncio.wait_for(
-            loop.run_in_executor(None, get_genai_response, history),
+            loop.run_in_executor(None, get_genai_response, history, current_requirements),
             timeout=30.0
         )
-        
+
         response_data = json.loads(response_text)
-        
+
         history.append({
             "role": "model",
             "parts": [response_data.get("next_question", "")]
         })
-        
-        # Inject our session_id to let the frontend persist it
+
+        if response_data.get("requirements_object"):
+            current_requirements = response_data["requirements_object"]
+
+        _save_session(db, session_id, history, current_requirements)
         response_data["session_id"] = session_id
-        
+
         return response_data
     except asyncio.TimeoutError:
-        # Remove the unanswered user message so session stays clean
         history.pop()
+        _save_session(db, session_id, history, current_requirements)
         raise HTTPException(status_code=504, detail="AI response timed out. Please try again.")
     except Exception as e:
         err = str(e)
         if "RESOURCE_EXHAUSTED" in err or "429" in err:
             history.pop()
+            _save_session(db, session_id, history, current_requirements)
             raise HTTPException(status_code=429, detail="Rate limit reached. Please wait a moment and try again.")
-        # Remove broken message from history
         history.pop()
+        _save_session(db, session_id, history, current_requirements)
         raise HTTPException(status_code=500, detail=err)
 
 @app.get("/api/health")
@@ -394,10 +521,13 @@ async def health_check():
     return {"status": "ok"}
 
 @app.post("/api/chat/reset")
-async def reset_session(request: ChatRequest):
-    if request.session_id in sessions:
-        del sessions[request.session_id]
-        return {"status": "session reset"}
+async def reset_session(request: ChatRequest, db: Session = Depends(get_db)):
+    if request.session_id:
+        db_session = db.query(ChatSession).filter(ChatSession.id == request.session_id).first()
+        if db_session:
+            db.delete(db_session)
+            db.commit()
+            return {"status": "session reset"}
     return {"status": "session not found"}
 
 @app.post("/api/generate", response_model=GenerateResponse)

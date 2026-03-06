@@ -33,7 +33,7 @@ The project includes an SB Admin 2 Bootstrap 4 template with:
 - Vendor libraries: Bootstrap, jQuery, FontAwesome, Chart.js, DataTables (already available in vendor/ folder)
 - CSS: css/sb-admin-2.css (plus custom styles)
 - JS: js/sb-admin-2.js (plus custom app logic)
-Frontend files should ADAPT this template structure. Use vendor CDN paths like vendor/jquery/jquery.min.js, vendor/bootstrap/js/bootstrap.bundle.min.js, etc.
+Frontend files should ADAPT this template structure. Use public CDN URLs like https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js, https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js, etc.
 All data persistence on the frontend should use localStorage.
 
 You MUST output ONLY valid JSON matching this EXACT structure (no markdown, no explanation):
@@ -60,7 +60,7 @@ IMPORTANT: The SB Admin 2 template's vendor/, css/, js/, and img/ directories ar
 GUIDELINES for file planning:
 - backend/ folder: main.py, database.py, models.py (or split by domain), routes/ folder with domain-separated route files
 - frontend/ folder: index.html (main dashboard adapting SB Admin 2 layout), custom.css (app-specific styles on top of sb-admin-2.css), js/ folder with feature-separated JS files (e.g. app.js, api.js, components.js)
-- Frontend HTML files MUST reference template assets via relative paths: vendor/jquery/jquery.min.js, css/sb-admin-2.min.css, js/sb-admin-2.min.js, etc.
+- Frontend HTML files MUST reference template assets via CDN URLs (NOT local vendor/ paths): use https://cdn.jsdelivr.net/npm/startbootstrap-sb-admin-2@4.1.3/css/sb-admin-2.min.css, https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js, https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js, etc.
 - Root: requirements.txt
 - Keep file count reasonable (5-15 files typically). Don't over-engineer.
 - Each file description must clearly state what that file does — this will be used as the generation prompt.
